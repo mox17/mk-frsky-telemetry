@@ -11,8 +11,8 @@ uint8_t latlong_flag = 0;
 uint32_t latlong = 0;
 //uint8_t first=0;
 
-#define comPin 9
-SoftwareSerialWithHalfDuplex FrSkySPort_Serial(comPin, comPin, true, false); // half duplex inverted logic
+#define SPortPin 9
+SoftwareSerialWithHalfDuplex FrSkySPort_Serial(SPortPin, SPortPin, true, false); // half duplex inverted logic
 
 // ***********************************************************************
 void FrSkySPort_Init(void)  
@@ -148,7 +148,7 @@ void FrSkySPort_Process(void)
                 FR_ID_count = 0;
             }
         }
-        lastRx=data;
+        lastRx = data;
     }
 }
 

@@ -3,31 +3,40 @@ Author George Chatzisavvidis.
 Projects that used for creation of Taranis-Mikrokopter project was
 Altastation and MavlinkFrsky.
 
+Modified by Erling Stage.
 */
 
-#include <stdint.h>
+#include <stdint.h>elsqe
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "SoftwareSerialWithHalfDuplex.h"
 #include "FrSkySPort.h"
 #include "altapix.h"
 #include "altatools.c"
-#include "errorCodes.h"
+
+// Pins usage
+// Pin 9   SPort to X8R (or X4R) receiver
+// Pin 10  Debug RX pin
+// Pin 11  Debug TX pin
+// Pin 13  Activity LED (built in on arduino pro mini board)
 
 //#define debugSerial       Serial2
+SoftwareSerialWithHalfDuplex debugSerial(10, 11); // no input expected
+
 #define MKSerial            Serial
 #define START               1
 #define MSG_RATE            10              // Hertz
 
 
 // ******************************************
-// Message #0  HEARTHBEAT 
-uint8_t    ap_type = 0;
-uint8_t    ap_autopilot = 0;
+// Message # 0  HEARTBEAT 
+//uint8_t    ap_type = 0;
+//uint8_t    ap_autopilot = 0;
 uint8_t    ap_base_mode = 0;
 uint32_t   ap_custom_mode = 0;
-uint8_t    ap_system_status = 0;
-uint8_t    ap_mavlink_version = 0;
+//uint8_t    ap_system_status = 0;
+//uint8_t    ap_mavlink_version = 0;
 
 // Message # 1  SYS_STATUS 
 uint16_t   ap_voltage_battery = 0;    // 1000 = 1V
@@ -42,7 +51,7 @@ int32_t    ap_longitude = 0;          // 162344467;
 int32_t    ap_gps_altitude = 0;       // 1000 = 1m
 
 // Message #74 VFR_HUD 
-int32_t    ap_airspeed = 0;
+//int32_t    ap_airspeed = 0;
 uint32_t   ap_groundspeed = 0;
 uint32_t   ap_heading = 0;
 uint16_t   ap_throttle = 0;
@@ -62,11 +71,11 @@ int32_t    ap_accZ_old = 0;
 
 // ******************************************
 // These are special for FrSky
-int32_t    adc2 = 0;               // 100 = 1.0V
-int32_t    vfas = 0;               // 100 = 1,0V
+//int32_t    adc2 = 0;               // 100 = 1.0V
+//int32_t    vfas = 0;               // 100 = 1,0V
 int32_t    gps_status = 0;         // (ap_sat_visible * 10) + ap_fixtype
                                    // ex. 83 = 8 satellites visible, 3D lock 
-uint8_t    ap_cell_count = 4;
+uint8_t    ap_cell_count = 4;      // This is the norm for Mikrokopter
 
 // ******************************************
 //uint8_t     MavLink_Connected;
@@ -91,59 +100,131 @@ int statusReadCommandLine = 0;
  
 int nbCrcError = 0;
 int cmdSend = 0;
-//int currentMenuIndex = 0;
-//int serialPinTx = 10;
-//int serialPinRx = 9;
 char cmdName[10];
-//char gpsInfo[11];
-//int menuIndex; 
+char gpsInfo[11];
+int menuIndex; 
 //char menuName[25];
 
 
 void setup()
 {  
+    debugSerial.begin(57600);
     FrSkySPort_Init();
     MKSerial.begin(57600);
-    pinMode(led,OUTPUT);
-//    pinMode(12,OUTPUT);
-//    pinMode(14,INPUT);
-//    analogReference(DEFAULT);
+    pinMode(led, OUTPUT);
+    analogReference(DEFAULT);
  
     redirectUartNc(); 
-    sprintf(cmdName,"OSD");
+    sprintf(cmdName, "OSD");  // Set 1st type of data to request from MK
 }
 
 
+void decodeOSD()
+{
+    s_MK_NaviData NaviData;
+    GPS_Pos_t currpos;
+
+    cmdSend = 1; // No need to send more commands for this, now that we have a response.
+    decode64(commandLine,rawDataDecoded,strlen(commandLine)); //? add decode status..? 
+
+    memcpy((unsigned char *)&NaviData, (unsigned char *)&rawDataDecoded, sizeof(NaviData));
+ 
+    // cool we are done , we have osdData Struct an we can construct ANY gui we want .
+    //-----------------PUSHING DATA FROM MK TO TARANIS------------------....
+   
+    currpos.Latitude             = NaviData.CurrentPosition.Latitude;
+    currpos.Longitude            = NaviData.CurrentPosition.Longitude;
+    ap_gps_altitude              = NaviData.CurrentPosition.Altitude;
+    gps_status                   = NaviData.CurrentPosition.Status; //  GPS STATUS 0 or 1 
+    //ap_gps_altitude            = NaviData.Altimeter;
+    ap_longitude                 = currpos.Longitude;
+    ap_latitude                  = currpos.Latitude;
+    //ap_voltage_battery         = NaviData.UBat/10;
+    ap_voltage_battery           = NaviData.UBat;
+    //ap_bar_altitude            = NaviData.Altimeter / MK_ALTI_FACTOR;
+    ap_bar_altitude              = NaviData.Altimeter;
+    //ap_groundspeed             = NaviData.GroundSpeed/100;
+    ap_groundspeed               = NaviData.GroundSpeed;
+    //ap_current_battery         = NaviData.Current/10;
+    ap_current_battery           = NaviData.Current;
+    ap_current_battery           = NaviData.Current*10;
+    ap_sat_visible               = NaviData.SatsInUse;
+    ap_heading                   = NaviData.CompassHeading;
+    ap_climb_rate                = NaviData.Variometer;
+    ap_custom_mode               = NaviData.UsedCapacity;
+    //ap_throttle                = NaviData.Gas;
+    ap_throttle                  = NaviData.SatsInUse;
+    ap_base_mode                 = NaviData.Errorcode;
+
+    if (NaviData.SatsInUse >= 6) {
+        ap_fixtype=3;
+    }
+}
+
+void decodeVersion()
+{
+    decode64(commandLine, rawDataDecoded, strlen(commandLine)); //? add decode status..? 
+    str_VersionInfo VersionInfo;
+    memcpy((unsigned char *)&VersionInfo, (unsigned char *)&rawDataDecoded, sizeof(VersionInfo));
+    char line1[20];
+    char line2[20];
+
+    sprintf(line1, "Version ");
+    sprintf(line2, "Nc: %u.%u", VersionInfo.SWMajor, VersionInfo.SWMinor);
+    //lcdClearLine(1);
+    debugSerial.println(line1);
+    debugSerial.println(line2);
+
+    // delay(2000);
+    cmdSend = 0; // tell him to resend dataRequest
+    checkVersionStatus = 1; 
+    sprintf(cmdName,"D2");
+}
+
+void decodeLCD()
+{
+    s_MK_LcdScreen LcdScreen;        
+
+    decode64(commandLine, rawDataDecoded, strlen(commandLine)); //? add decode status..? 
+    memcpy((unsigned char *)&LcdScreen, (unsigned char *)&rawDataDecoded, sizeof(LcdScreen));
+    menuIndex = LcdScreen.Menuitem;        
+    if (menuIndex == 2) {
+        extractGpsInfo(LcdScreen.DisplayText, gpsInfo);
+        debugSerial.print("gpsInfo=");
+        debugSerial.println(gpsInfo);
+        sprintf(cmdName, "OSD");
+    }
+}
+
 void loop() 
 {
-    digitalWrite(led,LOW);
-    delay(10);  // ES why??
+    digitalWrite(led, LOW);
+    //delay(10);  // ES why??
      
-    //currentMenuIndex = 0;
     FrSkySPort_Process(); // listen
-    digitalWrite(led,HIGH);
-    //PUSH TO TARANIS
+    digitalWrite(led, HIGH);
   
-    //sprintf(cmdName,"OSD");
+    //sprintf(cmdName, "OSD");
     if (!cmdSend){ // we dont need to send the command to mk on each loop , the mk is instructed to output data on regular basis    
         // we need to fetch OSD data  
         if (!checkVersionStatus) {
             sprintf(cmdName,"OSD");
         }
 
-        makeCmdString(cmdName,cmdStringRequest);
+        makeCmdString(cmdName, cmdStringRequest);
         MKSerial.println(cmdStringRequest);
         //debugSerial.println(cmdStringRequest);
+        cmdSend = 1;
     }
 
-    // Mk is sending the infos for OSD we need to read them and build the GUI
+    // MK is sending the infos for OSD we need to read them and build the GUI
     statusReadCommandLine = readCommandLine(commandLine);
     if (statusReadCommandLine == 1) {
         // we have a frame lets check CRC
         int crcStatus = checkCRC(commandLine,strlen(commandLine));
         if (!crcStatus) {
             if (nbCrcError > 10) {
-                //debugSerial.println("D: BrokenCRC");
+                debugSerial.println("D: BrokenCRC");
                 nbCrcError = 0;
             }
             cmdSend = 0; // we set it to 0 to force the commandIssue on the next Loop
@@ -155,45 +236,176 @@ void loop()
             if (dataType == '\0') {
                 cmdSend = 0; // we set it to 0 to force the commandIssue on the next Loop
             } else if (dataType == 'O') { // we have OSD data its cool its what we want.
-                //cmdSend = 1; /// this must be explained later
-                // we decode the data
-                decode64(commandLine,rawDataDecoded,strlen(commandLine)); //? add decode status..? 
-                s_MK_NaviData NaviData;
-                GPS_Pos_t currpos;
-        
-                memcpy((unsigned char *)&NaviData, (unsigned char *)&rawDataDecoded, sizeof(NaviData));
- 
-                // cool we are done , we have osdData Struct an we can construct ANY gui we want .
-                //-----------------PUSHING DATA FROM MK TO TARANIS------------------....
-               
-                currpos.Latitude             = NaviData.CurrentPosition.Latitude;
-                currpos.Longitude            = NaviData.CurrentPosition.Longitude;
-                ap_gps_altitude              = NaviData.CurrentPosition.Altitude;
-                gps_status                   = NaviData.CurrentPosition.Status; //  GPS STATUS 0 or 1 
-                //ap_gps_altitude            = NaviData.Altimeter;
-                ap_longitude                 = currpos.Longitude;
-                ap_latitude                  = currpos.Latitude;
-                //ap_voltage_battery         =  NaviData.UBat/10;
-                ap_voltage_battery           = NaviData.UBat;
-                //ap_bar_altitude            = (NaviData.Altimeter / MK_ALTI_FACTOR);
-                ap_bar_altitude              = NaviData.Altimeter;
-                //ap_groundspeed             = (NaviData.GroundSpeed/100);
-                ap_groundspeed               = NaviData.GroundSpeed;
-                //ap_current_battery         = NaviData.Current/10;
-                ap_current_battery           = NaviData.Current;
-                ap_current_battery           = NaviData.Current*10;
-                ap_sat_visible               = NaviData.SatsInUse;
-                ap_heading                   = NaviData.CompassHeading;
-                ap_climb_rate                = NaviData.Variometer;
-                ap_custom_mode               = NaviData.UsedCapacity;
-                //ap_throttle                = NaviData.Gas;
-                ap_throttle                  = NaviData.SatsInUse;
-                ap_base_mode                 = NaviData.Errorcode;
-            
-                if (NaviData.SatsInUse >= 6) {
-                    ap_fixtype=3;
+                decodeOSD();
+                //delay(200);
+                //sprintf(cmdName,"D2"); // ask for "display" content
+            }
+            else if (dataType == 'V') { // we have VERSION data we need to display version and set version check and maybe check the version compatibility
+                decodeVersion();
+            } 
+            else if (dataType == 'L') { 
+                decodeLCD();
+            }
+        }
+    } else if (statusReadCommandLine == 2) {
+        if (DEBUGME) {
+            debugSerial.println("D: Frame Broken");
+            cmdSend = 0; // we set it to 0 to force the commandIssue on the next Loop
+        }
+    } else if (statusReadCommandLine == 3) {
+        if (DEBUGME) {
+            debugSerial.println("D: Frame TimeOut");
+            cmdSend = 0; // we set it to 0 to force the commandIssue on the next Loop 
+        }
+    }
+    digitalWrite(led,HIGH);
+    //PUSH TO TARANIS
+    FrSkySPort_Process(); 
+}
+
+/**
+ * Select data from MK Navi board. See http://wiki.mikrokopter.de/en/SerialCommands
+ * Output can switched back to NC debug by sending the magic packet "0x1B,0x1B,0x55,0xAA,0x00"
+ */
+void redirectUartNc(void)
+{
+    MKSerial.print(0x1b);
+    MKSerial.print(0x1b);
+    MKSerial.print(0x55);
+    MKSerial.print(0xaa);
+    MKSerial.print(0x00);
+}
+
+/**
+ * Build a command to MikroKopter. 
+ * @param typeCmd the command to be sent
+ * 'OSD' :  a repeating transmission of NaviDataStruct (s_MK_NaviData).
+ * 'VER' : Version information in a VersionStruct (str_VersionInfo).
+ * 'D2'  : Menu display (s_MK_LcdScreen).
+ * @param cmdStringRequest is an output buffer.
+ */
+void makeCmdString(char *typeCmd, char *cmdStringRequest)
+{
+    char cmdData[20];
+    char toEncode[1];
+    char cmdFrame[30];
+    char cmdHeader[5];
+
+    *cmdStringRequest = 0; // start with empty string.
+    if (strcmp(typeCmd, "OSD") == 0) {
+        // we want osdData
+        //#cO=DzdMHTAAe[ype>==A=================================s]A=====eM====@?====n==>=I]=====s]AR>M@S=M==xe
+        cmdHeader[0] = '#'; // frame start
+        cmdHeader[1] = 'a' + NC_ADDRESS; // navi Addr = c
+        cmdHeader[2] = 'o'; // osdData = o
+        cmdHeader[3] = '\0';
+        toEncode[0]  = 200; // Interval of refresh of the OSD data in 10ms unit. approx 2000ms
+        encode64(toEncode, cmdData, sizeof(toEncode));
+        sprintf(cmdFrame, "%s%s", cmdHeader, cmdData);
+        char CRC[5];
+        addCRC(cmdFrame, CRC);
+        sprintf(cmdStringRequest, "%s%s%s", cmdHeader, cmdData, CRC);
+    } else if (strcmp(typeCmd, "VER")  == 0) {
+        // we want a VersionStruct
+        // Doesn't matter which board we address this request to.
+        cmdHeader[0] = '#'; // frame start
+        cmdHeader[1] = 'a'; // navi Addr = C
+        cmdHeader[2] = 'v'; // osdData = o
+        cmdHeader[3] = '\0';
+        sprintf(cmdFrame, "%s", cmdHeader);
+        char CRC[5];
+        addCRC(cmdFrame, CRC);
+        sprintf(cmdStringRequest, "%s%s", cmdHeader, CRC);
+    } else if (strcmp(typeCmd, "D2")  == 0) {
+        // we want osdData
+        cmdHeader[0]='#'; // frame start
+        cmdHeader[1]='a'; // navi Addr = C
+        cmdHeader[2]='l'; // osdData = o
+        cmdHeader[3]='\0';
+        toEncode[0] = 2;
+        encode64(toEncode, cmdData, sizeof(toEncode));
+        sprintf(cmdFrame, "%s%s", cmdHeader, cmdData);
+        char CRC[5];
+        addCRC(cmdFrame, CRC);
+        sprintf(cmdStringRequest, "%s%s%s", cmdHeader, cmdData, CRC);
+    }
+}
+
+/**
+ * Read a line of data from MikroKopter.
+ * The data is formatted in a flavor of base64.
+ * Always starting with '#' (which is not present in data) and always ending with '\r'.
+ */
+int readCommandLine(char *commandLine)
+{
+    int hasLine = 0;
+    int charIndex = 0;
+    char incomingChar;
+    const char startChar = '#';
+    const char endChar = '\r';
+    int inFrame = 0;
+    int brokenFrame = 0;
+    int timeOut = 0;
+    unsigned long timeStart = millis();
+    unsigned long timeNow = 0;
+    while (hasLine == 0) {
+        // implementer le timeout
+        timeNow = millis();
+        if (timeNow - timeStart > SERIAL_READ_TIMEOUT) {
+            timeOut = 1;
+            hasLine = 1;
+        }
+        // read the incoming byte:
+        if (MKSerial.available() > 0) {
+            incomingChar = MKSerial.read();
+            if (incomingChar == startChar) {
+                inFrame = 1;
+            }
+            if (inFrame && (incomingChar == endChar)) {
+                inFrame = 0;
+                hasLine = 1;
+            }
+            if (inFrame) {
+                commandLine[charIndex] = incomingChar;
+                charIndex++;
+                if (charIndex > maxFrameLen) {
+                    brokenFrame = 1;
+                    hasLine=1;
                 }
-          
+            }
+        }
+    }
+    if (brokenFrame) {
+        commandLine[0] = '\0';
+        return 2;
+    } else if (timeOut) {
+        commandLine[0] = '\0';
+        return 3;
+    } else {
+        commandLine[charIndex] = '\0';
+    }
+    return 1;
+}
+
+/**
+ * Classify type of MK response.
+ * 'D' : DebugOutStruct
+ * 'L' : Request Display 
+ * 'O' : OSD data NaviDataStruct
+ * 'l' : ??? not documented
+ * 'V' : VersionStruct
+ * 'H' : char[80] DisplayText
+ */
+char readDataType(char *mkLine)
+{
+    char dataType = mkLine[2];
+    if (strchr("DLOlVH", dataType) != NULL) {
+        return dataType;
+    }
+    return '\0';
+}
+
+
         //------------------------------------------------------------------------------------
         //--------------------------------MK DATA TO SEND-------------------------------------
         //------------------------------------------------------------------------------------
@@ -253,188 +465,5 @@ void loop()
         //Dist          ( Will be calculated by FrSky Taranis as the distance from first received lat/long = Home Position
         //
         //******************************************************
-        //delay(200);
-        sprintf(cmdName,"D2");
-      }
-//      else if (dataType == 'V'){ // we have VERSION data we need to display version and set version check and maybe check the version compatibility
-//
-//
-//        decode64(commandLine,rawDataDecoded,strlen(commandLine)); //? add decode status..? 
-//        str_VersionInfo VersionInfo;
-//        memcpy((unsigned char *)&VersionInfo, (unsigned char *)&rawDataDecoded, sizeof(VersionInfo));
-//        char line1[20];
-//        char line2[20];
-//
-//        sprintf(line1,"Version ");
-//        sprintf(line2,"Nc: %u.%u",VersionInfo.SWMajor,VersionInfo.SWMinor);
-//       // lcdClearLine(1);
-//        //Serial.println(line1);
-//        //Serial.println(line2);
-//
-//       // delay(2000);
-//        cmdSend = 0; // tel him to resend dataRequest
-//        checkVersionStatus = 1; 
-//        sprintf(cmdName,"D2");
-//
-//      } 
-//      else if (dataType == 'L'){ 
-//        decode64(commandLine,rawDataDecoded,strlen(commandLine)); //? add decode status..? 
-//        s_MK_LcdScreen LcdScreen;        
-//        memcpy((unsigned char *)&LcdScreen, (unsigned char *)&rawDataDecoded, sizeof(LcdScreen));
-//        menuIndex = LcdScreen.Menuitem;        
-//        //if(menuIndex == 2){
-//          extractGpsInfo(LcdScreen.DisplayText,gpsInfo);
-//          Serial.print("gpsInfo=");
-//          Serial.println(gpsInfo);
-//          
-//          sprintf(cmdName,"OSD");
-//       // }
-//        
-//      }
-      }
-    } else if (statusReadCommandLine == 2) {
-        if (DEBUGME) {
-            Serial.println("D: Frame Broken");
-            cmdSend = 0; // we set it to 0 to force the commandIssue on the next Loop
-        }
-    } else if (statusReadCommandLine == 3) {
-        if (DEBUGME) {
-            Serial.println("D: Frame TimeOut");
-            cmdSend = 0; // we set it to 0 to force the commandIssue on the next Loop 
-        }
-    }
-    digitalWrite(led,HIGH);
-    //PUSH TO TARANIS
-    FrSkySPort_Process(); 
-}
-
-
-void redirectUartNc(void)
-{
-    Serial.print(0x1b);
-    Serial.print(0x55);
-    Serial.print(0xaa);
-    Serial.print(0x00);
-}
-
-void makeCmdString(char *typeCmd,char *cmdStringRequest)
-{
-    char cmdData[20];
-    char toEncode[1];
-    char cmdFrame[30];
-    char cmdHeader[5];
-
-    if (strcmp(typeCmd, "OSD") == 0) {
-        // we want osdData
-        //#cO=DzdMHTAAe[ype>==A=================================s]A=====eM====@?====n==>=I]=====s]AR>M@S=M==xe
-        cmdHeader[0]='#'; // frame start
-        cmdHeader[1]='a'; // navi Addr = C
-        cmdHeader[2]='o'; // osdData = o
-        cmdHeader[3]='\0';
-        toEncode[0] = 200; // frequence of refresh of the OSD data => 1000ms
-        encode64(toEncode,cmdData,sizeof(toEncode));
-        sprintf(cmdFrame,"%s%s",cmdHeader,cmdData);
-        char CRC[5];
-        addCRC(cmdFrame,CRC);
-        sprintf(cmdStringRequest,"%s%s%s",cmdHeader,cmdData,CRC);
-    }
-
-    if (strcmp(typeCmd, "VER")  == 0) {
-        // we want versionINfo
-        //#c
-        cmdHeader[0]='#'; // frame start
-        cmdHeader[1]='a'; // navi Addr = C
-        cmdHeader[2]='v'; // osdData = o
-        cmdHeader[3]='\0';
-        sprintf(cmdFrame,"%s",cmdHeader);
-        char CRC[5];
-        addCRC(cmdFrame,CRC);
-        sprintf(cmdStringRequest,"%s%s",cmdHeader,CRC);
-    }  
-
-    if (strcmp(typeCmd, "D2")  == 0) {
-        // we want osdData
-        cmdHeader[0]='#'; // frame start
-        cmdHeader[1]='a'; // navi Addr = C
-        cmdHeader[2]='l'; // osdData = o
-        cmdHeader[3]='\0';
-        toEncode[0] = 2;
-        encode64(toEncode,cmdData,sizeof(toEncode));
-        sprintf(cmdFrame,"%s%s",cmdHeader,cmdData);
-        char CRC[5];
-        addCRC(cmdFrame,CRC);
-        sprintf(cmdStringRequest,"%s%s%s",cmdHeader,cmdData,CRC);
-    }
-}
-
-int readCommandLine(char *commandLine)
-{
-    int hasLine = 0;
-    int charIndex = 0;
-    char incomingChar;
-    const char startChar = '#';
-    const char endChar = '\r';
-    int inFrame = 0;
-    int brokenFrame = 0;
-    int timeOut = 0;
-    unsigned long timeStart = millis();
-    unsigned long timeNow = 0;
-    while (hasLine == 0) {
-        // implementer le timeout
-        timeNow = millis();
-        if (timeNow - timeStart > SERIAL_READ_TIMEOUT) {
-            timeOut = 1;
-            hasLine = 1;
-        }
-        // read the incoming byte:
-        if (MKSerial.available() > 0) {
-            incomingChar = MKSerial.read();
-            if (incomingChar == startChar) {
-                inFrame = 1;
-            }
-            if (inFrame && (incomingChar == endChar)) {
-                inFrame = 0;
-                hasLine = 1;
-            }
-            if (inFrame) {
-                commandLine[charIndex] = incomingChar;
-                charIndex++;
-                if (charIndex > maxFrameLen) {
-                    brokenFrame = 1;
-                    hasLine=1;
-                }
-            }
-        }
-    }
-    if (brokenFrame) {
-        commandLine[0] = '\0';
-        return 2;
-    } else if (timeOut) {
-        commandLine[0] = '\0';
-        return 3;
-    } else {
-        commandLine[charIndex] = '\0';
-    }
-    return 1;
-}
-
-char readDataType(char *mkLine)
-{
-    char dataType = mkLine[2];
-    if (strchr("DLOlVH", dataType) != NULL) {
-        return dataType;
-    }
-    return '\0';
-}
-
-// This beep used for altastastion for ground station purposes
-void beepMe(int beepMode,int beepDuration)
-{
-//  if (beepMode == ERROR_BEEP) {
-//     tone(beepPin, 18000); //plays a 18kHz tone on digital I/O pin 13
-//  }
-//  delay(beepDuration*1000);
-//  noTone(beepPin);
-}
 
 

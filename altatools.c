@@ -1,8 +1,7 @@
 #include <stdio.h>
 #include "string.h"
-#include "altatools.h"
 
-void extractGpsInfo(char* menuStr,char* gpsInfo)
+void extractGpsInfo(char* menuStr, char* gpsInfo)
 {
     strncpy(gpsInfo, menuStr+7, 10);
     gpsInfo[10] = '\0';
@@ -13,8 +12,8 @@ void decode64(char *RxdBuffer, unsigned char *ptrOut, int len)
     unsigned char a,b,c,d; 
     unsigned char ptr = 0; 
     unsigned char x,y,z; 
-	
-    int ptrIn;
+    int           ptrIn;
+
     ptrIn = 3; // skip first 3 chrs (#)[TYPE][Addr] 1234567893
     len = len-5;
 
@@ -34,7 +33,7 @@ void decode64(char *RxdBuffer, unsigned char *ptrOut, int len)
     }
 }
 
-void encode64(char *Data,char *TX_Buff, int Length)
+void encode64(char *Data, char *TX_Buff, int Length)
 {
     unsigned int pt = 0;
     unsigned char a,b,c;
@@ -53,7 +52,7 @@ void encode64(char *Data,char *TX_Buff, int Length)
     TX_Buff[pt] = 0;
 }
 
-void addCRC(char *TXBuff,char *CRC)
+void addCRC(char *TXBuff, char *CRC)
 {
     unsigned int tmpCRC = 0;
     unsigned int i;
@@ -83,7 +82,6 @@ int checkCRC(char *t_InData, int Length)
     for (i=0; i < Length-2; i++) {
         CRC+=t_InData[i];
     }
-
     CRC = CRC % 4096;
 
     if (t_InData[Length - 2] != ('=' + (CRC / 64))) {
@@ -111,6 +109,5 @@ char *ftoa(char *a, double f, int precision)
     return ret;
 } 
 #endif
-
 
 

@@ -6,6 +6,7 @@
 #define SENSOR_ID2                   0x0D
 #define SENSOR_ID3                   0x34
 #define SENSOR_ID4                   0x67
+
 // Frsky-specific
 #define START_STOP                   0x7e
 #define DATA_FRAME                   0x10

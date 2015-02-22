@@ -5,9 +5,11 @@
 #define DEBUGME 1
 #define SERIAL_READ_TIMEOUT 10000 // 10 sec to read a valid frame
 //#define MK_ALTI_FACTOR 22.5 // some value that correct the altitude reference to alti 0 i guess
-//#define MINIMUM_VOLTAGE_BEFORE_ALERT 14.5 // set it whatever you want.
-//#define ERROR_BEEP 1
-//#define STARTUP_BEEP 2
+
+#define FC_ADDRESS      1  //(b)
+#define NC_ADDRESS      2  //(c)
+#define MK3MAG_ADDRESS  3  //(d)
+#define BL_CTRL_ADDRESS 5  //(f)
 
 int checkCRC(char *, int );
 void addCRC(char *,char *);
@@ -15,10 +17,6 @@ void encode64(char *,char *, int );
 void decode64(char *Rx,unsigned char *,int);
 char *ftoa(char *, double , int);
 void extractGpsInfo(char*,char*);
-
-/*
-for the structures above i have used parts of uart.c and QMK ground station 
-*/
 
 typedef struct
 {
