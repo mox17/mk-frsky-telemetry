@@ -1,6 +1,10 @@
 #ifndef __ALTAPIX_H__
 #define __ALTAPIX_H__
 
+/**
+ * Mikrokopter data structures and helper routines for formatting and decoding of messages.
+ */
+
 #define maxFrameLen 254
 #define DEBUGME 1
 #define SERIAL_READ_TIMEOUT 10000 // 10 sec to read a valid frame
