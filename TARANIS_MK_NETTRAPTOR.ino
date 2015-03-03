@@ -5,7 +5,7 @@ Altastation and MavlinkFrsky.
 
 Modified by Erling Stage.
 */
-
+#include <Arduino.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,8 +21,12 @@ Modified by Erling Stage.
 // Pin 11  Debug TX pin
 // Pin 13  Activity LED (built in on arduino pro mini board)
 
+#define xDEBUG_TRACES
+
+#if defined(DEBUG_TRACES)
 //#define debugSerial       Serial2
 SoftwareSerialWithHalfDuplex debugSerial(10, 11); // no input expected
+#endif
 
 #define MKSerial            Serial
 #define START               1
@@ -36,7 +40,9 @@ typedef enum MK_Command {
 } MK_Command_t;
 
 void makeCmdString(MK_Command_t typeCmd, char *cmdStringRequest);
-
+void redirectUartNc(void);
+int readMKdata(char *commandLine);
+char readDataType(char *mkLine);
 
 // ******************************************
 uint8_t    ap_base_mode = 0;
@@ -142,9 +148,10 @@ void decodeVersion()
 
     sprintf(line1, "Version ");
     sprintf(line2, "Nc: %u.%u", VersionInfo->SWMajor, VersionInfo->SWMinor);
+#if defined(DEBUG_TRACES)
     debugSerial.println(line1);
     debugSerial.println(line2);
-
+#endif
     sendMKCmd = 1; // tell MK to send dataRequest
     VersionReceived = 1;
     cmdMK = MK_Request_Display;
@@ -162,15 +169,19 @@ void decodeLCD()
     menuIndex = LcdScreen->Menuitem;        
     if (menuIndex == 2) {
         extractGpsInfo(LcdScreen->DisplayText, gpsInfo);
+#if defined(DEBUG_TRACES)
         debugSerial.print("gpsInfo=");
         debugSerial.println(gpsInfo);
+#endif
         cmdMK = MK_Request_OSD_Data;
     }
 }
 
 void setup()
-{  
+{
+#if defined(DEBUG_TRACES)
     debugSerial.begin(57600);
+#endif
     FrSkySPort_Init();
     MKSerial.begin(57600);
     pinMode(led, OUTPUT);
@@ -178,7 +189,9 @@ void setup()
  
     redirectUartNc();
     cmdMK = MK_Request_OSD_Data; // Set 1st type of data to request from MK
+#if defined(DEBUG_TRACES)
     debugSerial.print("Hello world\n");
+#endif
 }
 
 
@@ -195,7 +208,9 @@ void loop()
 
         makeCmdString(cmdMK, cmdStringRequest);
         MKSerial.println(cmdStringRequest);
+#if defined(DEBUG_TRACES)
         debugSerial.println(cmdStringRequest);
+#endif
     }
 
     // Get MK data (non blocking)
@@ -205,7 +220,9 @@ void loop()
         int crcStatus = checkCRC(commandLine, strlen(commandLine));
         if (!crcStatus) {
             if (nbCrcError > 10) {
+#if defined(DEBUG_TRACES)
                 debugSerial.println("D: BrokenCRC");
+#endif
                 nbCrcError = 0;
             }
             sendMKCmd = 1; // we set it to 0 to force the commandIssue on the next Loop
@@ -227,12 +244,16 @@ void loop()
         }
     } else if (statusReadCommandLine == 2) {
         if (DEBUGME) {
+#if defined(DEBUG_TRACES)
             debugSerial.println("D: Frame Broken");
+#endif
             sendMKCmd = 0; // we set it to 0 to force the commandIssue on the next Loop
         }
     } else if (statusReadCommandLine == 3) {
         if (DEBUGME) {
+#if defined(DEBUG_TRACES)
             debugSerial.println("D: Frame TimeOut");
+#endif
             sendMKCmd = 0; // we set it to 0 to force the commandIssue on the next Loop 
         }
     }

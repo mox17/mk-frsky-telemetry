@@ -34,4 +34,7 @@
 #define FR_ID_T2                     0x0410 // int [°C]
 #define FR_ID_GPS_ALT                0x0820 // (int) float * 100 [m]
 
-
+void FrSkySPort_Init(void);
+void FrSkySPort_Process(void);
+void FrSkySPort_SendPackage(uint16_t id, uint32_t value);
+void FrSkySPort_TransmitByte(uint8_t b);
