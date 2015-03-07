@@ -10,25 +10,28 @@ Modified by Erling Stage.
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "SoftwareSerialWithHalfDuplex.h"
+#include "HardwareSerial.h"
 #include "FrSkySPort.h"
 #include "altapix.h"
 #include "altatools.c"
 
 // Pins usage
-// Pin 9   SPort to X8R (or X4R) receiver
-// Pin 10  Debug RX pin
-// Pin 11  Debug TX pin
 // Pin 13  Activity LED (built in on arduino pro mini board)
 
-#define xDEBUG_TRACES
+#define DEBUG_TRACES
 
 #if defined(DEBUG_TRACES)
-//#define debugSerial       Serial2
-SoftwareSerialWithHalfDuplex debugSerial(10, 11); // no input expected
+#define debugSerial            Serial3          // USB on Teensy
+#define DEBUG_PRINTLN(arg)     debugSerial.println(arg)
+#define DEBUG_PRINTF1(arg,p1)  debugSerial.printf(arg,p1)
+#define PRINTNZ(v)           do {if (v) { debugSerial.print(#v ": "); debugSerial.println(v); } } while(0);
+#else
+#define DEBUG_PRINTLN(arg)  
+#define DEBUG_PRINTF1(arg,p1)
+#define PRINTNZ(v)
 #endif
 
-#define MKSerial            Serial
+#define MKSerial            Serial2
 #define START               1
 #define MSG_RATE            10              // Hertz
 
@@ -90,11 +93,11 @@ uint8_t    ap_cell_count = 4;      // This is the norm for Mikrokopter
 #define led 13
 
 ///////////////////////////////
-char commandLine[maxFrameLen+1];
-char cmdStringRequest[30];
-unsigned char rawDataDecoded[200];
 int VersionReceived = 0; // no version seen yet
 int statusReadCommandLine = 0;
+char commandLine[maxFrameLen+1];
+char cmdStringRequest[30];
+unsigned char rawDataDecoded[500];
  
 int nbCrcError = 0;
 int sendMKCmd = 1;  // Shall we send a command to MK at next opportunity
@@ -105,36 +108,73 @@ void decodeOSD()
 {
     s_MK_NaviData *NaviData;
 
-    sendMKCmd = 0; // No need to send more commands for this, now that we have a response.
     decode64(commandLine,rawDataDecoded,strlen(commandLine)); //? add decode status..? 
 
     NaviData = (s_MK_NaviData*)&rawDataDecoded;
  
-    ap_gps_altitude              = NaviData->CurrentPosition.Altitude;
-    gps_status                   = NaviData->CurrentPosition.Status; //  GPS STATUS 0 or 1 
-    //ap_gps_altitude            = NaviData->Altimeter;
-    ap_longitude                 = NaviData->CurrentPosition.Longitude;
-    ap_latitude                  = NaviData->CurrentPosition.Latitude;
-    //ap_voltage_battery         = NaviData->UBat/10;
-    ap_voltage_battery           = NaviData->UBat;
     //ap_bar_altitude            = NaviData->Altimeter / MK_ALTI_FACTOR;
-    ap_bar_altitude              = NaviData->Altimeter;
-    //ap_groundspeed             = NaviData->GroundSpeed/100;
-    ap_groundspeed               = NaviData->GroundSpeed;
-    //ap_current_battery         = NaviData->Current/10;
-    ap_current_battery           = NaviData->Current;
-    ap_current_battery           = NaviData->Current*10;
-    ap_sat_visible               = NaviData->SatsInUse;
-    ap_heading                   = NaviData->CompassHeading;
-    ap_climb_rate                = NaviData->Variometer;
-    ap_custom_mode               = NaviData->UsedCapacity;
     //ap_throttle                = NaviData->Gas;
-    ap_throttle                  = NaviData->SatsInUse;
-    ap_base_mode                 = NaviData->Errorcode;
 
     if (NaviData->SatsInUse >= 6) {
         ap_fixtype=3;
     }
+
+
+    //GPS_Pos_t    CurrentPosition;	// see ubx.h for details
+    ap_longitude                 = NaviData->CurrentPosition.Longitude;
+    PRINTNZ(ap_longitude);
+    ap_latitude                  = NaviData->CurrentPosition.Latitude;
+    PRINTNZ(ap_latitude);
+    ap_gps_altitude              = NaviData->CurrentPosition.Altitude;
+    PRINTNZ(ap_gps_altitude);
+    gps_status                   = NaviData->CurrentPosition.Status; //  GPS STATUS 0 or 1 
+    PRINTNZ(gps_status);
+    //GPS_Pos_t    TargetPosition;
+    //GPS_PosDev_t TargetPositionDeviation;
+    //GPS_Pos_t    HomePosition;
+    //GPS_PosDev_t HomePositionDeviation;
+    //uint8_t      WaypointIndex;		// index of current waypoints running from 0 to WaypointNumber-1
+    //uint8_t      WaypointNumber;	// number of stored waypoints
+    //uint8_t      SatsInUse;		// number of satellites used for position solution
+    ap_sat_visible               = NaviData->SatsInUse;
+    PRINTNZ(ap_sat_visible);
+    //int16_t      Altimeter; 		// hight according to air pressure
+    ap_bar_altitude              = NaviData->Altimeter;
+    PRINTNZ(ap_bar_altitude );
+    //int16_t      Variometer;		// climb(+) and sink(-) rate
+    ap_climb_rate                = NaviData->Variometer;
+    PRINTNZ(ap_climb_rate);
+    //---uint16_t     FlyingTime;		// in seconds
+    //uint8_t      UBat;			// Battery Voltage in 0.1 Volts
+    ap_voltage_battery           = NaviData->UBat;
+    PRINTNZ(ap_voltage_battery);
+    //uint16_t     GroundSpeed;		// speed over ground in cm/s (2D)
+    ap_groundspeed               = NaviData->GroundSpeed;
+    PRINTNZ(ap_groundspeed );
+    //int16_t      Heading;		// current flight direction in ° as angle to north
+    //int16_t      CompassHeading;	// current compass value in °
+    ap_heading                   = NaviData->CompassHeading;
+    PRINTNZ(ap_heading);
+    //---int8_t       AngleNick;		// current Nick angle in 1°
+    //---int8_t       AngleRoll;		// current Rick angle in 1°
+    //---uint8_t      RC_Quality;		// RC_Quality
+    //---uint8_t      FCFlags;		// Flags from FC
+    //---uint8_t      NCFlags;		// Flags from NC
+    //uint8_t      Errorcode;		// 0 --> okay
+    ap_base_mode                 = NaviData->Errorcode;
+    PRINTNZ(ap_base_mode);
+    //---uint8_t      OperatingRadius;       // current operation radius around the Home Position in m
+    //---int16_t      TopSpeed;		// velocity in vertical direction in cm/s
+    //---uint8_t      TargetHoldTime;	// time in s to stay at the given target, counts down to 0 if target has been reached
+    //---uint8_t      RC_RSSI;		// Receiver signal strength (since version 2 added)
+    //---int16_t      SetpointAltitude;	// setpoint for altitude
+    //---uint8_t      Gas;			// for future use
+    //uint16_t     Current;		// actual current in 0.1A steps
+    ap_current_battery           = NaviData->Current;
+    PRINTNZ(ap_current_battery);
+    //---uint16_t     UsedCapacity;		// used capacity in mAh
+    ap_custom_mode               = NaviData->UsedCapacity;
+    PRINTNZ(ap_custom_mode); 
 }
 
 void decodeVersion()
@@ -143,37 +183,27 @@ void decodeVersion()
 
     decode64(commandLine, rawDataDecoded, strlen(commandLine)); //? add decode status..? 
     VersionInfo = (str_VersionInfo *)&rawDataDecoded;
-    char line1[20];
     char line2[20];
 
-    sprintf(line1, "Version ");
+    DEBUG_PRINTLN( "Version ");
     sprintf(line2, "Nc: %u.%u", VersionInfo->SWMajor, VersionInfo->SWMinor);
-#if defined(DEBUG_TRACES)
-    debugSerial.println(line1);
-    debugSerial.println(line2);
-#endif
-    sendMKCmd = 1; // tell MK to send dataRequest
-    VersionReceived = 1;
-    cmdMK = MK_Request_Display;
+    DEBUG_PRINTLN(line2);
 }
 
 void decodeLCD()
 {
+    DEBUG_PRINTLN("decodeLCD()");
     s_MK_LcdScreen *LcdScreen;        
     char gpsInfo[11];
     int menuIndex; 
 
     decode64(commandLine, rawDataDecoded, strlen(commandLine)); //? add decode status..? 
-    //memcpy((unsigned char *)&LcdScreen, (unsigned char *)&rawDataDecoded, sizeof(LcdScreen));
     LcdScreen = (s_MK_LcdScreen *)&rawDataDecoded;
     menuIndex = LcdScreen->Menuitem;        
     if (menuIndex == 2) {
         extractGpsInfo(LcdScreen->DisplayText, gpsInfo);
-#if defined(DEBUG_TRACES)
-        debugSerial.print("gpsInfo=");
-        debugSerial.println(gpsInfo);
-#endif
-        cmdMK = MK_Request_OSD_Data;
+        DEBUG_PRINTLN("gpsInfo=");
+        DEBUG_PRINTLN(gpsInfo);
     }
 }
 
@@ -181,48 +211,50 @@ void setup()
 {
 #if defined(DEBUG_TRACES)
     debugSerial.begin(57600);
+    debugSerial.print("Mikrokopter-FrSKY telemetry gateway\n");
 #endif
     FrSkySPort_Init();
     MKSerial.begin(57600);
     pinMode(led, OUTPUT);
-    analogReference(DEFAULT);
+    //analogReference(DEFAULT);
  
     redirectUartNc();
     cmdMK = MK_Request_OSD_Data; // Set 1st type of data to request from MK
-#if defined(DEBUG_TRACES)
-    debugSerial.print("Hello world\n");
-#endif
 }
 
 
 void loop() 
 {
+    static unsigned long lastCMdTime=0;
+    unsigned long timeNow;
+    
     FrSkySPort_Process();
   
-    //sprintf(cmdName, "OSD");
     if (sendMKCmd){ // we dont need to send the command to mk on each loop, the mk is instructed to output data on regular basis    
         // we need to fetch OSD data  
         if (!VersionReceived) {
-            cmdMK = MK_Version_Request; //MK_Request_OSD_Data;
+            cmdMK = MK_Version_Request;
         }
-
-        makeCmdString(cmdMK, cmdStringRequest);
-        MKSerial.println(cmdStringRequest);
-#if defined(DEBUG_TRACES)
-        debugSerial.println(cmdStringRequest);
-#endif
+        
+        timeNow = millis();
+        if (timeNow - lastCMdTime > 1000) {
+            lastCMdTime = timeNow;
+            makeCmdString(cmdMK, cmdStringRequest);
+            redirectUartNc();
+            MKSerial.write(cmdStringRequest);
+            DEBUG_PRINTLN(cmdStringRequest);
+        }
     }
 
-    // Get MK data (non blocking)
-    statusReadCommandLine = readMKdata(commandLine);
+    statusReadCommandLine = readMKdata(commandLine);  // Get MK data (non blocking)
     if (statusReadCommandLine == 1) {
         // we have a frame lets check CRC
+        //DEBUG_PRINTF1("rx %d\n",strlen(commandLine));
+        DEBUG_PRINTLN(commandLine);
         int crcStatus = checkCRC(commandLine, strlen(commandLine));
         if (!crcStatus) {
             if (nbCrcError > 10) {
-#if defined(DEBUG_TRACES)
-                debugSerial.println("D: BrokenCRC");
-#endif
+                DEBUG_PRINTLN("D: BrokenCRC");
                 nbCrcError = 0;
             }
             sendMKCmd = 1; // we set it to 0 to force the commandIssue on the next Loop
@@ -235,25 +267,25 @@ void loop()
                 sendMKCmd = 1; // force new command in the next Loop
             } else if (dataType == 'O') { // we have OSD data
                 decodeOSD();
-                //sprintf(cmdName,"D2"); // ask for "display" content
+                cmdMK = MK_Request_OSD_Data;
             } else if (dataType == 'V') { // we have VERSION data we need to display version and set version check and maybe check the version compatibility
                 decodeVersion();
+                VersionReceived = 1;
+                sendMKCmd = 1; // tell MK to send dataRequest
+                cmdMK = MK_Request_Display;
             } else if (dataType == 'L') { 
                 decodeLCD();
+                cmdMK = MK_Request_OSD_Data;
             }
         }
     } else if (statusReadCommandLine == 2) {
         if (DEBUGME) {
-#if defined(DEBUG_TRACES)
-            debugSerial.println("D: Frame Broken");
-#endif
+            DEBUG_PRINTLN("D: Frame Broken");
             sendMKCmd = 0; // we set it to 0 to force the commandIssue on the next Loop
         }
     } else if (statusReadCommandLine == 3) {
         if (DEBUGME) {
-#if defined(DEBUG_TRACES)
-            debugSerial.println("D: Frame TimeOut");
-#endif
+            DEBUG_PRINTLN("D: Frame TimeOut");
             sendMKCmd = 0; // we set it to 0 to force the commandIssue on the next Loop 
         }
     }
@@ -266,11 +298,12 @@ void loop()
  */
 void redirectUartNc(void)
 {
-    MKSerial.print(0x1b);
-    MKSerial.print(0x1b);
-    MKSerial.print(0x55);
-    MKSerial.print(0xaa);
-    MKSerial.print(0x00);
+    MKSerial.write(0x1b);
+    MKSerial.write(0x1b);
+    MKSerial.write(0x55);
+    MKSerial.write(0xaa);
+    MKSerial.write(0x00);
+    delay(50);
 }
 
 /**
@@ -297,7 +330,7 @@ void makeCmdString(MK_Command_t typeCmd, char *cmdStringRequest)
         cmdHeader[1] = 'a' + NC_ADDRESS; // navi Addr = c
         cmdHeader[2] = 'o'; // osdData = o
         cmdHeader[3] = '\0';
-        toEncode[0]  = 200; // Interval of refresh of the OSD data in 10ms unit. approx 2000ms
+        toEncode[0]  = 30; // Interval of refresh of the OSD data in 10ms unit. approx 2000ms
         encode64(toEncode, cmdData, sizeof(toEncode));
         sprintf(cmdFrame, "%s%s", cmdHeader, cmdData);
         addCRC(cmdFrame, CRC);
@@ -350,7 +383,8 @@ int readMKdata(char *commandLine)
                 if (incomingChar == '#') {
                     read_state = expect_end;
                     timeStart = timeNow;
-                    charIndex = 0;
+                    commandLine[0] = incomingChar;
+                    charIndex = 1;
                     ret = 0; // partial data
                     digitalWrite(led, HIGH);
                 }
@@ -363,24 +397,22 @@ int readMKdata(char *commandLine)
                 if (incomingChar != '\r') {
                     commandLine[charIndex++] = incomingChar;
                     if (charIndex > maxFrameLen) {
-                        ret = 2; // broken frame
                         read_state = expect_start;
                         commandLine[0] = 0;
                         digitalWrite(led, LOW);
-                        return ret;
+                        return 2; // broken frame
                     }
                 } else {
-                    ret = 1; // full frame
                     read_state = expect_start;
                     digitalWrite(led, LOW);
-                    return ret;
+                    return 1; // full frame
                 }
             } else {
                 if (timeNow - timeStart > SERIAL_READ_TIMEOUT) {
-                    ret = 3; // timeout
                     read_state = expect_start;
                     commandLine[0] = 0;
                     digitalWrite(led, LOW);
+                    return 3; // timeout
                 }
             }
             break;
@@ -402,6 +434,7 @@ int readMKdata(char *commandLine)
 char readDataType(char *mkLine)
 {
     char dataType = mkLine[2];
+
     if (strchr("DLOlVH", dataType) != NULL) {
         return dataType;
     }

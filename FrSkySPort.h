@@ -1,4 +1,8 @@
-// Frsky SPort speed
+// Frsky SPort parameters
+#define FrSkySPort_Serial            Serial1
+#define FrSkySPort_C1                UART0_C1
+#define FrSkySPort_C3                UART0_C3
+#define FrSkySPort_S2                UART0_S2
 #define FrSkySPort_BAUD              57600
 
 // Frsky Sensor-ID to use. 

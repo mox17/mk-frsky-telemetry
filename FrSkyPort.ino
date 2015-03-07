@@ -1,5 +1,5 @@
+#include "HardwareSerial.h"
 #include "FrSkySPort.h"
-#include "SoftwareSerialWithHalfDuplex.h"
 
 #define   MAX_ID_COUNT                19
 
@@ -9,16 +9,15 @@ uint32_t FR_ID_count = 0;
 uint8_t cell_count = 0;
 uint8_t latlong_flag = 0;
 uint32_t latlong = 0;
-//uint8_t first=0;
 
-#define SPortPin 9
-SoftwareSerialWithHalfDuplex FrSkySPort_Serial(SPortPin, SPortPin, true, false); // half duplex inverted logic
 
 // ***********************************************************************
 void FrSkySPort_Init(void)  
 {
     FrSkySPort_Serial.begin(FrSkySPort_BAUD);
-    FrSkySPort_Serial.listen();
+    FrSkySPort_C3 = 0x10;           // Tx invert
+    FrSkySPort_C1 = 0xA0;           // Single wire mode
+    FrSkySPort_S2 = 0x10;           // Rx Invert
 }
 
 
@@ -36,17 +35,15 @@ void FrSkySPort_Process(void)
             {
             switch (FR_ID_count) {
             case 0:
-                if (ap_fixtype==3) {
-                    FrSkySPort_SendPackage(FR_ID_SPEED, ap_groundspeed * 20 );  // from GPS converted to km/h
-                }
+                FrSkySPort_SendPackage(FR_ID_SPEED, ap_groundspeed); // knt to km/h conversion missing?
                 break;
 
             case 1:
-                FrSkySPort_SendPackage(FR_ID_RPM, ap_throttle * 2);   //  * 2 if number of blades on Taranis is set to 2
+                FrSkySPort_SendPackage(FR_ID_RPM, ap_custom_mode * 2);   //  * 2 if number of blades on Taranis is set to 2
                 break;
 
             case 2:
-                FrSkySPort_SendPackage(FR_ID_CURRENT, ap_current_battery / 10); 
+                FrSkySPort_SendPackage(FR_ID_CURRENT, ap_current_battery); 
                 break; 
 
             case 3:        // Sends the altitude value from barometer, first sent value used as zero altitude
@@ -54,18 +51,18 @@ void FrSkySPort_Process(void)
                 break;       
 
             case 4:        // Sends the ap_longitude value, setting bit 31 high
-                if (ap_fixtype==3) {
+                if (ap_sat_visible>2) {
                     if (ap_longitude < 0) {
                         latlong = ((abs(ap_longitude)/100)*6)  | 0xC0000000;
                     } else {
-                           latlong = ((abs(ap_longitude)/100)*6)  | 0x80000000;
+                        latlong = ((abs(ap_longitude)/100)*6)  | 0x80000000;
                     }
                     FrSkySPort_SendPackage(FR_ID_LATLONG, latlong);
                 }
                 break;
 
             case 5:        // Sends the ap_latitude value, setting bit 31 low  
-                if (ap_fixtype==3) {
+                if (ap_sat_visible>2) {
                     if (ap_latitude < 0 ) {
                         latlong = ((abs(ap_latitude)/100)*6) | 0x40000000;
                     } else {
@@ -140,7 +137,7 @@ void FrSkySPort_Process(void)
                 break;
 
             case 19:
-                FrSkySPort_SendPackage(FR_ID_FUEL, ap_custom_mode); 
+                FrSkySPort_SendPackage(FR_ID_FUEL, ap_sat_visible); 
                 break;      
             }
             FR_ID_count++;
@@ -190,7 +187,7 @@ void FrSkySPort_SendCrc()
 void FrSkySPort_SendPackage(uint16_t id, uint32_t value) 
 {
     digitalWrite(led, HIGH);
-    //FrSkySPort_C3 |= 32;      //  Transmit direction, to S.Port
+    FrSkySPort_C3 |= 32;      //  Transmit direction, to S.Port
     FrSkySPort_SendByte(DATA_FRAME);
     uint8_t *bytes = (uint8_t*)&id;
     FrSkySPort_SendByte(bytes[0]);
@@ -202,7 +199,7 @@ void FrSkySPort_SendPackage(uint16_t id, uint32_t value)
     FrSkySPort_SendByte(bytes[3]);
     FrSkySPort_SendCrc();
     FrSkySPort_Serial.flush();
-    FrSkySPort_Serial.listen(); // Transmit direction, from S.Port
+    FrSkySPort_C3 ^= 32;      // Transmit direction, from S.Port
     digitalWrite(led, LOW);
 }
 
