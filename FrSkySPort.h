@@ -6,10 +6,12 @@
 #define FrSkySPort_BAUD              57600
 
 // Frsky Sensor-ID to use. 
-#define SENSOR_ID1                   0x1B // ID of sensor. Must be something that is polled by FrSky RX
-#define SENSOR_ID2                   0x0D
-#define SENSOR_ID3                   0x34
-#define SENSOR_ID4                   0x67
+#define SENSOR_ID1                   0x1B // 27 : ID of sensor. Must be something that is polled by FrSky RX
+#define SENSOR_ID2                   0x0D // 13
+#define SENSOR_ID3                   0x34 // 20
+#define SENSOR_ID4                   0x67 // 07
+#define SENSOR_ID5                   0x53 // 19 xtra
+#define SENSOR_ID6                   0x95 // 21 xtra
 
 // Frsky-specific
 #define START_STOP                   0x7e
