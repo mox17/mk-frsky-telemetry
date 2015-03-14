@@ -1,17 +1,318 @@
 #include "HardwareSerial.h"
 #include "FrSkySPort.h"
 
-#define   MAX_ID_COUNT                19
-
-short crc;                         // used for crc calc of frsky-packet
-uint8_t lastRx;                    // Last byte received from FrSKY. Look for 7E <dev ID>
-uint32_t FR_ID_count = 0;
+uint16_t crc;                       // used for crc calc of frsky-packet
+uint8_t  lastRx;                    // Last byte received from FrSKY. Look for 7E <dev ID>
 uint8_t cell_count = 0;
-uint8_t latlong_flag = 0;
 uint32_t latlong = 0;
+uint32_t new_data_counter = 0;
+uint32_t skip_data_counter = 0;
+uint32_t dev_poll_counter = 0;
 
+class TelemetryItem
+{
+    public:
+        // These are the data types we can send. They are related to the FrSKY defined ID's FR_ID_...
+        enum dataType {
+            TI_FR_ID_SPEED,
+            TI_FR_ID_RPM,
+            TI_FR_ID_CURRENT,
+            TI_FR_ID_ALTITUDE,
+            TI_FR_ID_LONG,  // FrSKY uses a combined FR_ID_LATLONG and use a data bit to encode LAT/LONG
+            TI_FR_ID_LAT,   // FrSKY uses a combined FR_ID_LATLONG and use a data bit to encode LAT/LONG
+            TI_FR_ID_HEADING,
+            TI_FR_ID_ADC2,
+            TI_FR_ID_CELLS12, // FrSKY uses FR_ID_CELLS and encode which cells in data
+            TI_FR_ID_CELLS23, // FrSKY uses FR_ID_CELLS and encode which cells in data
+            TI_FR_ID_CELLS45, // FrSKY uses FR_ID_CELLS and encode which cells in data
+            TI_FR_ID_ACCX,
+            TI_FR_ID_ACCY,
+            TI_FR_ID_ACCZ,
+            TI_FR_ID_VFAS,
+            TI_FR_ID_T1,
+            TI_FR_ID_T2,
+            TI_FR_ID_VARIO,
+            TI_FR_ID_GPS_ALT,
+            TI_FR_ID_FUEL,
+            TI_NBR_ITEMS
+        };
+        TelemetryItem(dataType id, uint16_t frid);
+        uint32_t FetchData(dataType, bool &valid);
+        bool transmitData();
 
-// ***********************************************************************
+    private:
+        dataType m_id;
+        uint16_t m_frid;
+        uint16_t m_skip;
+        uint16_t m_skipmax;
+        bool m_valid;
+        uint32_t m_data;
+};
+
+TelemetryItem::TelemetryItem(dataType id, uint16_t frid)
+{
+    m_id    = id;
+    m_frid  = frid;
+    m_skip  = 0;
+    m_skipmax = 30; // unchanging data gets skipped this many times
+    m_data  = 0;
+    m_valid = false; // no data yet
+}
+
+/**
+ * \brief convert MK data to FrSKY format
+ * \return 32 bit data item
+ */
+uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
+{
+    uint32_t value=0;
+    valid = true;
+    
+    switch (type) {
+    case TI_FR_ID_SPEED:
+        value = mk_groundspeed;          // knt to km/h conversion missing?
+        break;
+
+    case TI_FR_ID_RPM:
+        value = mk_used_capacity * 2;    //  * 2 if number of blades on Taranis is set to 2
+        break;
+
+    case TI_FR_ID_CURRENT:
+        value = mk_current_battery; 
+        break; 
+
+    case TI_FR_ID_ALTITUDE:
+        value = mk_bar_altitude;         // from barometer, 100 = 1m
+        break;       
+
+    case TI_FR_ID_LONG:
+        if (mk_sat_visible>2) {
+            if (mk_longitude < 0) {
+                latlong = ((abs(mk_longitude)/100)*6)  | 0xC0000000;
+            } else {
+                latlong = ((abs(mk_longitude)/100)*6)  | 0x80000000;
+            }
+            value = latlong;
+        } else {
+            valid = false;
+        }
+        break;
+
+    case TI_FR_ID_LAT:
+        if (mk_sat_visible>2) {
+            if (mk_latitude < 0 ) {
+                latlong = ((abs(mk_latitude)/100)*6) | 0x40000000;
+            } else {
+                latlong = ((abs(mk_latitude)/100)*6);
+            }
+            value = latlong;
+        } else {
+            valid = false;
+        }
+        break;  
+
+    case TI_FR_ID_HEADING:
+        value = mk_compass_heading * 100;   // 10000 = 100 deg
+        break;    
+
+    case TI_FR_ID_ADC2:
+        value = mk_voltage_battery; 
+        break;       
+
+    case TI_FR_ID_CELLS12:
+        uint32_t temp;
+        temp = ((mk_voltage_battery/(ap_cell_count * 2)) & 0xFFF);
+        value = (temp << 20) | (temp << 8);          // Battery cell 0,1
+        break;
+
+    case TI_FR_ID_CELLS23:
+        if (ap_cell_count > 2) {
+            uint32_t offset;
+            offset = ap_cell_count > 3 ? 0x02: 0x01;
+            temp = ((mk_voltage_battery/(ap_cell_count * 2)) & 0xFFF);
+            value = (temp << 20) | (temp << 8) | offset;  // Battery cell 2,3
+        } else {
+            valid = false;
+        }
+        break;
+
+    case TI_FR_ID_CELLS45:
+        if (ap_cell_count > 4) {
+            uint32_t offset;
+            offset = ap_cell_count > 5 ? 0x04: 0x03;
+            temp = ((mk_voltage_battery/(ap_cell_count * 2)) & 0xFFF);
+            value = (temp << 20) | (temp << 8) | offset;  // Battery cell 2,3
+        } else {
+            valid = false;
+        }
+        break;     
+
+    case TI_FR_ID_ACCX:
+        value = ap_accX;    
+        break;
+
+    case TI_FR_ID_ACCY:
+        value = ap_accY; 
+        break; 
+
+    case TI_FR_ID_ACCZ:
+        value = ap_accZ; 
+        break; 
+
+    case TI_FR_ID_VFAS:
+        value = mk_voltage_battery * 10;
+        break;   
+
+    case TI_FR_ID_T1:
+        value = mk_error_code; 
+        break; 
+
+    case TI_FR_ID_T2:
+        value = mk_operating_radius; 
+        break;
+
+    case TI_FR_ID_VARIO:
+        value = mk_climb_rate;       // 100 = 1m/s        
+        break;
+
+    case TI_FR_ID_GPS_ALT:
+        if (mk_sat_visible>2) {
+            value = mk_gps_altitude / 10;   // from GPS, units: MK mm, FrSKY cm
+        } else {
+            valid = false;
+        }
+        break;
+
+    case TI_FR_ID_FUEL:
+        value = mk_sat_visible; 
+        break;      
+
+    default:
+        valid = false;
+        break;
+    }
+    return value;
+}
+
+/**
+ * \brief Fetch & send data if available and (new or stale)
+ * \return 1 if data was sent, 
+ */
+bool TelemetryItem::transmitData(void)
+{
+    bool valid = false;
+    uint32_t data = FetchData(m_id, valid);
+
+    if (valid) {
+        if ((data != m_data) || (m_skip > m_skipmax)) {
+            FrSkySPort_SendPackage(m_frid, data);
+            m_data = data;  // Save copy of what was sent
+            m_skip = 0;
+            return true;
+        } else {
+            m_skip++;
+        }
+    }
+    return false;
+}
+
+/**
+ * \brief A collection of TelemetryItem s.
+ * Handles mapping to FrSKY ID's and encoding logic.
+ */
+class TelemetrySet 
+{
+public: 
+    TelemetrySet(const TelemetryItem::dataType activeIds[], uint16_t len);
+    void SendItem();
+
+private:
+    TelemetryItem* m_items[TelemetryItem::TI_NBR_ITEMS] = {}; //! Map data type to object
+    const uint16_t m_frId[TelemetryItem::TI_NBR_ITEMS] = { // Mapping from internal ID's to FrSKY ID's
+                                 FR_ID_SPEED,
+                                 FR_ID_RPM,
+                                 FR_ID_CURRENT,
+                                 FR_ID_ALTITUDE,
+                                 FR_ID_LATLONG, FR_ID_LATLONG,
+                                 FR_ID_HEADING,
+                                 FR_ID_ADC2,
+                                 FR_ID_CELLS, FR_ID_CELLS, FR_ID_CELLS,
+                                 FR_ID_ACCX, FR_ID_ACCY, FR_ID_ACCZ,
+                                 FR_ID_VFAS,FR_ID_T1,FR_ID_T2,FR_ID_VARIO,FR_ID_GPS_ALT,
+                                 FR_ID_FUEL};       //! Map data type to FrSKY ID
+    uint16_t m_count; //! Number of active telemetry items
+    uint16_t m_next;  //! Next telemetry item to send
+    uint16_t m_idx[TelemetryItem::TI_NBR_ITEMS] = {};
+};
+
+TelemetrySet::TelemetrySet(const TelemetryItem::dataType activeIds[], uint16_t len)
+{
+    uint16_t i;
+    TelemetryItem::dataType type;
+    uint16_t frtype;
+
+    m_count = len;
+    m_next = 0;
+    for (i=0; i<len; i++) {
+        type = activeIds[i];
+        frtype = m_frId[type];
+        m_items[type] = new TelemetryItem(type, frtype);  // Map each object according to data type
+        m_idx[i] = type;  // map consequtive index to used data type
+    }
+}
+
+/**
+ * \brief Send the next ready TelemetryItem
+ */
+void TelemetrySet::SendItem()
+{
+    bool done=false;
+    uint16_t tries=0;  // 
+    do {
+        done = m_items[m_idx[m_next]]->transmitData();
+        if (done) {
+            //DEBUG_PRINT("*");
+            new_data_counter++;
+        }
+        m_next++;
+        tries++;
+        if (m_next >= m_count) {
+            m_next = 0;
+        }
+        if (!done && (tries >= m_count)) {
+            // Only try each item once per round.
+            //DEBUG_PRINT("-");
+            skip_data_counter++;
+            done = true;
+        }
+    } while (!done);
+}
+
+// These are the telemetry items we will actually transmit.
+// Comment out items not relevant to save bandwidth.
+const TelemetryItem::dataType activeItems[] = {
+    TelemetryItem::TI_FR_ID_SPEED,
+    TelemetryItem::TI_FR_ID_RPM,
+    TelemetryItem::TI_FR_ID_CURRENT,
+    TelemetryItem::TI_FR_ID_ALTITUDE,
+    TelemetryItem::TI_FR_ID_LONG,
+    TelemetryItem::TI_FR_ID_LAT,
+    TelemetryItem::TI_FR_ID_HEADING,
+    TelemetryItem::TI_FR_ID_ADC2,
+    TelemetryItem::TI_FR_ID_CELLS12,
+    TelemetryItem::TI_FR_ID_CELLS23,
+    //TelemetryItem::TI_FR_ID_CELLS45,
+    //TelemetryItem::TI_FR_ID_ACCX,
+    //TelemetryItem::TI_FR_ID_ACCY,
+    //TelemetryItem::TI_FR_ID_ACCZ,
+    TelemetryItem::TI_FR_ID_VFAS,
+    TelemetryItem::TI_FR_ID_T1,
+    TelemetryItem::TI_FR_ID_T2,
+    TelemetryItem::TI_FR_ID_VARIO,
+    TelemetryItem::TI_FR_ID_GPS_ALT,
+    TelemetryItem::TI_FR_ID_FUEL,
+};
+
 void FrSkySPort_Init(void)  
 {
     FrSkySPort_Serial.begin(FrSkySPort_BAUD);
@@ -20,143 +321,45 @@ void FrSkySPort_Init(void)
     FrSkySPort_S2 = 0x10;           // Rx Invert
 }
 
+TelemetrySet *channel=NULL; //! This points to the object with the TelemetrySet
 
-// ***********************************************************************
+void FrSkySPort_Setup(void)
+{
+    channel = new TelemetrySet(activeItems, sizeof(activeItems));
+}
+
 void FrSkySPort_Process(void) 
 {
     uint8_t data = 0;
-    uint32_t temp = 0;
-    uint8_t offset;
     while ( FrSkySPort_Serial.available()) {
         data = FrSkySPort_Serial.read();
         if (lastRx == START_STOP) {
+            // FrSKY scans all known nodes PLUS ONE of the unknown (in round robin) for each cycle.
+            // Recognizing more ID's means that releative bandwith increases. In this case to 6/7th
             if ((data == SENSOR_ID1) || (data == SENSOR_ID2) || 
                 (data == SENSOR_ID3) || (data == SENSOR_ID4) ||
                 (data == SENSOR_ID5) || (data == SENSOR_ID6)) {
-                switch (FR_ID_count) {
-                case 0:
-                    FrSkySPort_SendPackage(FR_ID_SPEED, mk_groundspeed); // knt to km/h conversion missing?
-                    break;
-    
-                case 1:
-                    FrSkySPort_SendPackage(FR_ID_RPM, mk_used_capacity * 2);   //  * 2 if number of blades on Taranis is set to 2
-                    break;
-    
-                case 2:
-                    FrSkySPort_SendPackage(FR_ID_CURRENT, mk_current_battery); 
-                    break; 
-    
-                case 3:        // Sends the altitude value from barometer, first sent value used as zero altitude
-                    FrSkySPort_SendPackage(FR_ID_ALTITUDE, mk_bar_altitude);   // from barometer, 100 = 1m
-                    break;       
-    
-                case 4:        // Sends the ap_longitude value, setting bit 31 high
-                    if (mk_sat_visible>2) {
-                        if (mk_longitude < 0) {
-                            latlong = ((abs(mk_longitude)/100)*6)  | 0xC0000000;
-                        } else {
-                            latlong = ((abs(mk_longitude)/100)*6)  | 0x80000000;
-                        }
-                        FrSkySPort_SendPackage(FR_ID_LATLONG, latlong);
-                    }
-                    break;
-    
-                case 5:        // Sends the ap_latitude value, setting bit 31 low  
-                    if (mk_sat_visible>2) {
-                        if (mk_latitude < 0 ) {
-                            latlong = ((abs(mk_latitude)/100)*6) | 0x40000000;
-                        } else {
-                            latlong = ((abs(mk_latitude)/100)*6);
-                        }
-                        FrSkySPort_SendPackage(FR_ID_LATLONG, latlong);
-                    }
-                    break;  
-    
-                case 6:        // Sends the compass heading
-                    FrSkySPort_SendPackage(FR_ID_HEADING, mk_compass_heading * 100);   // 10000 = 100 deg
-                    break;    
-    
-                case 7:        // Sends the analog value from input A0 on Teensy 3.1
-                    //FrSkySPort_SendPackage(FR_ID_ADC2,adc2);
-                    FrSkySPort_SendPackage(FR_ID_ADC2, mk_voltage_battery);                  
-                    break;       
-    
-                case 8:        // First 2 cells
-                    temp = ((mk_voltage_battery/(ap_cell_count * 2)) & 0xFFF);
-                    FrSkySPort_SendPackage(FR_ID_CELLS, (temp << 20) | (temp << 8));          // Battery cell 0,1
-                    break;
-    
-                case 9:    // Optional 3 and 4 Cells
-                    if (ap_cell_count > 2) {
-                        offset = ap_cell_count > 3 ? 0x02: 0x01;
-                        temp = ((mk_voltage_battery/(ap_cell_count * 2)) & 0xFFF);
-                        FrSkySPort_SendPackage(FR_ID_CELLS,(temp << 20) | (temp << 8) | offset);  // Battery cell 2,3
-                    }
-                    break;
-    
-                case 10:    // Optional 5 and 6 Cells
-                    if (ap_cell_count > 4) {
-                        offset = ap_cell_count > 5 ? 0x04: 0x03;
-                        temp = ((mk_voltage_battery/(ap_cell_count * 2)) & 0xFFF);
-                        FrSkySPort_SendPackage(FR_ID_CELLS, (temp << 20) | (temp << 8) | offset);  // Battery cell 2,3
-                    }
-                    break;     
-    
-                case 11:
-                    FrSkySPort_SendPackage(FR_ID_ACCX, ap_accX_old - ap_accX);    
-                    break;
-    
-                case 12:
-                    FrSkySPort_SendPackage(FR_ID_ACCY, ap_accY_old - ap_accY); 
-                    break; 
-    
-                case 13:
-                    FrSkySPort_SendPackage(FR_ID_ACCZ, ap_accZ_old - ap_accZ ); 
-                    break; 
-    
-                case 14:        // Sends voltage as a VFAS value
-                    FrSkySPort_SendPackage(FR_ID_VFAS, mk_voltage_battery * 10);
-                    break;   
-    
-                case 15:
-                    FrSkySPort_SendPackage(FR_ID_T1, mk_error_code); 
-                    break; 
-    
-                case 16:
-                    FrSkySPort_SendPackage(FR_ID_T2, mk_operating_radius); 
-                    break;
-    
-                case 17:
-                    FrSkySPort_SendPackage(FR_ID_VARIO, mk_climb_rate );       // 100 = 1m/s        
-                    break;
-    
-                case 18:
-                    //if(ap_fixtype==3) {
-                    FrSkySPort_SendPackage(FR_ID_GPS_ALT, mk_gps_altitude / 10);   // from GPS,  100=1m
-                    // }
-                    break;
-    
-                case 19:
-                    FrSkySPort_SendPackage(FR_ID_FUEL, mk_sat_visible); 
-                    break;      
-                }
-                FR_ID_count++;
-                if (FR_ID_count > MAX_ID_COUNT) {
-                    FR_ID_count = 0;
-                }
+                channel->SendItem();
             } else {
                 // Some other sensor was probed
-                //digitalWrite(mkPin, HIGH);
-                //delay(2);
-                //digitalWrite(mkPin, LOW);
+                // digitalWrite(mkPin, HIGH);
+                // delay(2);
+                // digitalWrite(mkPin, LOW);
+                //DEBUG_PRINT2(data,HEX);
+                dev_poll_counter++;
+                if (dev_poll_counter % 300 == 0) {
+                    uint32_t tot;
+                    tot = new_data_counter + skip_data_counter + dev_poll_counter;
+                    DEBUG_PRINT("New:"); DEBUG_PRINT(100*new_data_counter/tot);
+                    DEBUG_PRINT(" Skip:"); DEBUG_PRINT(100*skip_data_counter/tot);
+                    DEBUG_PRINT(" Poll:"); DEBUG_PRINTLN(100*dev_poll_counter/tot);
+                }
             }
         }
         lastRx = data;
     }
 }
 
-
-// ***********************************************************************
 void FrSkySPort_SendByte(uint8_t b) 
 {
     FrSkySPort_TransmitByte( b );
@@ -168,7 +371,6 @@ void FrSkySPort_SendByte(uint8_t b)
     crc &= 0x00ff;
 }
 
-// ***********************************************************************
 void FrSkySPort_TransmitByte(uint8_t b) 
 {
     if ( b == 0x7e ) {
@@ -182,14 +384,12 @@ void FrSkySPort_TransmitByte(uint8_t b)
     } 
 }
 
-// ***********************************************************************
 void FrSkySPort_SendCrc() 
 {
     FrSkySPort_TransmitByte( 0xFF-crc );
     crc = 0; // CRC reset
 }
 
-// ***********************************************************************
 void FrSkySPort_SendPackage(uint16_t id, uint32_t value) 
 {
     digitalWrite(led, HIGH);

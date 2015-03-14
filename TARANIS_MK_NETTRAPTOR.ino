@@ -19,23 +19,25 @@ Modified by Erling Stage.
 #define led 13  // when sending FrSKY data
 #define mkPin 2 // when processing
 
-#define DEBUG_TRACES
+#define xDEBUG_TRACES
 
 #if defined(DEBUG_TRACES)
 #define debugSerial            Serial3
+#define DEBUG_PRINT(arg)       debugSerial.print(arg)
+#define DEBUG_PRINT2(arg,a2)   debugSerial.print(arg,a2)
 #define DEBUG_PRINTLN(arg)     debugSerial.println(arg)
 #define DEBUG_PRINTF1(arg,p1)  debugSerial.printf(arg,p1)
-//#define PRIcNTNZ(v)           do {if (v) { debugSerial.print(#v ": "); debugSerial.println(v); } } while(0);
+//#define PRINTNZ(v)           do {if (v) { debugSerial.print(#v ": "); debugSerial.println(v); } } while(0);
 #define PRINTNZ(v)
 #else
+#define DEBUG_PRINT(arg)
+#define DEBUG_PRINT2(arg,a2)
 #define DEBUG_PRINTLN(arg)  
 #define DEBUG_PRINTF1(arg,p1)
-#define PRINcTNZ(v)
+#define PRINTNZ(v)
 #endif
 
 #define MKSerial            Serial2
-#define START               1
-#define MSG_RATE            10              // Hertz
 
 typedef enum MK_Command {
     MK_Request_OSD_Data, 
@@ -57,7 +59,7 @@ uint16_t   mk_voltage_battery = 0;    // 1000 = 1V
 int16_t    mk_current_battery = 0;    //  10 = 1A
 
 // Message #24  GPS_RAW_INT 
-uint8_t    ap_fixtype = 0;            //   0= No GPS, 1 = No Fix, 2 = 2D Fix, 3 = 3D Fix
+uint8_t    ap_fixtype = 0;            // 0= No GPS, 1 = No Fix, 2 = 2D Fix, 3 = 3D Fix
 uint8_t    mk_sat_visible = 0;        // numbers of visible satelites
 // FrSky Taranis uses the first recieved lat/long as homeposition. 
 int32_t    mk_latitude = 0;           // 585522540;
@@ -72,19 +74,14 @@ uint16_t   ap_throttle = 0;
 
 // FrSky Taranis uses the first recieved value after 'PowerOn' or  'Telemetry Reset'  as zero altitude
 int32_t    mk_bar_altitude = 0;    // 100 = 1m
-int32_t    mk_climb_rate = 0;      // 100= 1m/s
-int32_t    mk_operating_radius = 0; // m
+int32_t    mk_climb_rate = 0;      // 100 = 1m/s
+int32_t    mk_operating_radius = 0; // m  (fixed at 250 for "normal" license?)
 
-// Message #27 RAW IMU 
+// RAW IMU 
 int32_t    ap_accX = 0;
 int32_t    ap_accY = 0;
 int32_t    ap_accZ = 0;
 
-int32_t    ap_accX_old = 0;
-int32_t    ap_accY_old = 0;
-int32_t    ap_accZ_old = 0;
-
-// ******************************************
 // These are special for FrSky
 //int32_t    adc2 = 0;               // 100 = 1.0V
 //int32_t    vfas = 0;               // 100 = 1.0V
@@ -99,7 +96,6 @@ int statusReadCommandLine = 0;
 char commandLine[maxFrameLen+1];
 char cmdStringRequest[30];
 unsigned char rawDataDecoded[500];
- 
 int nbCrcError = 0;
 int sendMKCmd = 1;  // Shall we send a command to MK at next opportunity
 MK_Command_t cmdMK = MK_Request_OSD_Data;
@@ -109,12 +105,8 @@ void decodeOSD()
 {
     s_MK_NaviData *NaviData;
     digitalWrite(mkPin, HIGH);
-    decode64(commandLine,rawDataDecoded,strlen(commandLine)); //? add decode status..? 
-
+    decode64(commandLine, rawDataDecoded, strlen(commandLine));
     NaviData = (s_MK_NaviData*)&rawDataDecoded;
- 
-    //mk_bar_altitude            = NaviData->Altimeter / MK_ALTI_FACTOR;
-    //ap_throttle                = NaviData->Gas;
 
     if (NaviData->SatsInUse >= 6) {
         ap_fixtype=3;
@@ -125,7 +117,7 @@ void decodeOSD()
     PRINTNZ(mk_longitude);
     mk_latitude                  = NaviData->CurrentPosition.Latitude;
     PRINTNZ(mk_latitude);
-    mk_gps_altitude              = NaviData->CurrentPosition.Altitude;
+    mk_gps_altitude              = NaviData->CurrentPosition.Altitude; // mm
     PRINTNZ(mk_gps_altitude);
     gps_status                   = NaviData->CurrentPosition.Status; //  GPS STATUS 0 or 1 
     PRINTNZ(gps_status);
@@ -133,49 +125,39 @@ void decodeOSD()
     //---GPS_PosDev_t TargetPositionDeviation;
     //---GPS_Pos_t    HomePosition;
     //---GPS_PosDev_t HomePositionDeviation;
-    //---uint8_t      WaypointIndex;		// index of current waypoints running from 0 to WaypointNumber-1
-    //---uint8_t      WaypointNumber;	// number of stored waypoints
-    //---uint8_t      SatsInUse;		// number of satellites used for position solution
-    mk_sat_visible               = NaviData->SatsInUse;
+    //---uint8_t      WaypointIndex;    // index of current waypoints running from 0 to WaypointNumber-1
+    //---uint8_t      WaypointNumber;   // number of stored waypoints
+    mk_sat_visible               = NaviData->SatsInUse; // number of satellites used for position solution
     PRINTNZ(mk_sat_visible);
-    //int16_t      Altimeter; 		// hight according to air pressure
-    mk_bar_altitude              = NaviData->Altimeter;
+    mk_bar_altitude              = NaviData->Altimeter; // height according to air pressure in cm
     PRINTNZ(mk_bar_altitude);
-    //int16_t      Variometer;		// climb(+) and sink(-) rate
-    mk_climb_rate                = NaviData->Variometer;
+    mk_climb_rate                = NaviData->Variometer; // climb(+) and sink(-) rate
     PRINTNZ(mk_climb_rate);
     //---uint16_t     FlyingTime;		// in seconds
-    //uint8_t      UBat;			// Battery Voltage in 0.1 Volts
-    mk_voltage_battery           = NaviData->UBat;
+    mk_voltage_battery           = NaviData->UBat; // Battery Voltage in 0.1 Volts
     PRINTNZ(mk_voltage_battery);
-    //uint16_t     GroundSpeed;		// speed over ground in cm/s (2D)
-    mk_groundspeed               = NaviData->GroundSpeed;
+    mk_groundspeed               = NaviData->GroundSpeed; // speed over ground in cm/s (2D)
     PRINTNZ(mk_groundspeed );
     //---int16_t      Heading;		// current flight direction in ° as angle to north
-    //int16_t      CompassHeading;	// current compass value in °
-    mk_compass_heading                   = NaviData->CompassHeading;
+    mk_compass_heading           = NaviData->CompassHeading; // current compass value in °
     PRINTNZ(mk_compass_heading);
     //---int8_t       AngleNick;		// current Nick angle in 1°
     //---int8_t       AngleRoll;		// current Rick angle in 1°
     //---uint8_t      RC_Quality;		// RC_Quality
     //---uint8_t      FCFlags;		// Flags from FC
     //---uint8_t      NCFlags;		// Flags from NC
-    //uint8_t      Errorcode;		// 0 --> okay
-    mk_error_code                 = NaviData->Errorcode;
+    mk_error_code                = NaviData->Errorcode; // 0 --> okay
     PRINTNZ(mk_error_code);
-    //uint8_t      OperatingRadius;       // current operation radius around the Home Position in m
-    mk_operating_radius           = NaviData->OperatingRadius;
+    mk_operating_radius          = NaviData->OperatingRadius; // current operation radius around the Home Position in m
     PRINTNZ(mk_operating_radius);
     //---int16_t      TopSpeed;		// velocity in vertical direction in cm/s
     //---uint8_t      TargetHoldTime;	// time in s to stay at the given target, counts down to 0 if target has been reached
     //---uint8_t      RC_RSSI;		// Receiver signal strength (since version 2 added)
     //---int16_t      SetpointAltitude;	// setpoint for altitude
     //---uint8_t      Gas;			// for future use
-    //uint16_t     Current;		// actual current in 0.1A steps
-    mk_current_battery           = NaviData->Current;
+    mk_current_battery           = NaviData->Current; // actual current in 0.1A steps
     PRINTNZ(mk_current_battery);
-    //uint16_t     UsedCapacity;		// used capacity in mAh
-    mk_used_capacity               = NaviData->UsedCapacity;
+    mk_used_capacity             = NaviData->UsedCapacity; // used capacity in mAh
     PRINTNZ(mk_used_capacity); 
     digitalWrite(mkPin, LOW);
     mk_success = 1;
@@ -215,8 +197,9 @@ void setup()
 {
 #if defined(DEBUG_TRACES)
     debugSerial.begin(115200);
-    debugSerial.print("Mikrokopter-FrSKY telemetry gateway\n");
+    debugSerial.print("\e[2JMikrokopter-FrSKY telemetry gateway\r\n");
 #endif
+    FrSkySPort_Setup();
     FrSkySPort_Init();
     MKSerial.begin(57600);
     pinMode(led, OUTPUT);
@@ -232,8 +215,8 @@ void loop()
 {
     static unsigned long lastCMdTime=0;
     unsigned long timeNow;
-    
-    FrSkySPort_Process();
+
+    FrSkySPort_Process();  // Scan for RX polling messages
   
     if (sendMKCmd){ // we dont need to send the command to mk on each loop, the mk is instructed to output data on regular basis    
         // we need to fetch OSD data  
@@ -249,15 +232,14 @@ void loop()
                 redirectUartNc();
             }
             MKSerial.write(cmdStringRequest);
-            DEBUG_PRINTLN(cmdStringRequest);
+            //DEBUG_PRINTLN(cmdStringRequest);
         }
     }
 
     statusReadCommandLine = readMKdata(commandLine);  // Get MK data (non blocking)
     if (statusReadCommandLine == 1) {
         // we have a frame lets check CRC
-        //DEBUG_PRINTLN(commandLine);
-        DEBUG_PRINTLN("===");
+        //DEBUG_PRINTLN("=");
         int crcStatus = checkCRC(commandLine, strlen(commandLine));
         if (!crcStatus) {
             if (nbCrcError > 10) {
@@ -337,7 +319,7 @@ void makeCmdString(MK_Command_t typeCmd, char *cmdStringRequest)
         cmdHeader[1] = 'a' + NC_ADDRESS; // navi Addr = c
         cmdHeader[2] = 'o'; // osdData = o
         cmdHeader[3] = '\0';
-        toEncode[0]  = 15; // Interval of refresh of the OSD data in 10ms unit. approx 2000ms
+        toEncode[0]  = 10; // Interval of refresh of the OSD data in 10ms unit. approx 2000ms
         encode64(toEncode, cmdData, sizeof(toEncode));
         sprintf(cmdFrame, "%s%s", cmdHeader, cmdData);
         addCRC(cmdFrame, CRC);
