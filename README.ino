@@ -7,30 +7,30 @@
         //          GPS_PosDev_t TargetPositionDeviation;
         //          GPS_Pos_t    HomePosition;
         //          GPS_PosDev_t HomePositionDeviation;
-        //          WaypointIndex;		// index of current waypoints running from 0 to WaypointNumber-1
-        //          WaypointNumber;		// number of stored waypoints
+        //          WaypointIndex;	// index of current waypoints running from 0 to WaypointNumber-1
+        //          WaypointNumber;	// number of stored waypoints
         //          SatsInUse;		// number of satellites used for position solution
         //          Altimeter; 		// hight according to air pressure
         //          Variometer;		// climb(+) and sink(-) rate
         //          FlyingTime;		// in seconds
-        //          UBat;			// Battery Voltage in 0.1 Volts
-        //          GroundSpeed;		// speed over ground in cm/s (2D)
+        //          UBat;		// Battery Voltage in 0.1 Volts
+        //          GroundSpeed;	// speed over ground in cm/s (2D)
         //          Heading;		// current flight direction in ° as angle to north
-        //          CompassHeading;		// current compass value in °
+        //          CompassHeading;	// current compass value in °
         //          AngleNick;		// current Nick angle in 1°
         //          AngleRoll;		// current Rick angle in 1°
         //          RC_Quality;		// RC_Quality
         //          FCFlags;		// Flags from FC
         //          NCFlags;		// Flags from NC
         //          Errorcode;		// 0 --> okay
-        //          OperatingRadius;               // current operation radius around the Home Position in m
+        //          OperatingRadius;    // current operation radius around the Home Position in m
         //          TopSpeed;		// velocity in vertical direction in cm/s
-        //          TargetHoldTime;		// time in s to stay at the given target, counts down to 0 if target has been reached
+        //          TargetHoldTime;	// time in s to stay at the given target, counts down to 0 if target has been reached
         //          RC_RSSI;		// Receiver signal strength (since version 2 added)
-        //          SetpointAltitude;			// setpoint for altitude
-        //          Gas;						// for future use
-        //          Current;					// actual current in 0.1A steps
-        //          UsedCapacity;				// used capacity in mAh
+        //          SetpointAltitude;	// setpoint for altitude
+        //          Gas;		// for future use
+        //          Current;	        // actual current in 0.1A steps
+        //          UsedCapacity;	// used capacity in mAh
         //
         
         

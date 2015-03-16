@@ -103,12 +103,43 @@ typedef struct
     uint8_t      OperatingRadius;       // current operation radius around the Home Position in m
     int16_t      TopSpeed;		// velocity in vertical direction in cm/s
     uint8_t      TargetHoldTime;	// time in s to stay at the given target, counts down to 0 if target has been reached
-    uint8_t      RC_RSSI;		// Receiver signal strength (since version 2 added)
+    uint8_t      FCStatusFlags2;	// StatusFlags2 (since version 5 added)
     int16_t      SetpointAltitude;	// setpoint for altitude
     uint8_t      Gas;			// for future use
     uint16_t     Current;		// actual current in 0.1A steps
     uint16_t     UsedCapacity;		// used capacity in mAh
 } __attribute__((packed)) s_MK_NaviData;
+
+// ------- NCFlags -------------------------------------
+#define NC_FLAG_FREE                            0x01
+#define NC_FLAG_PH                              0x02
+#define NC_FLAG_CH                              0x04
+#define NC_FLAG_RANGE_LIMIT                     0x08
+#define NC_FLAG_NOSERIALLINK                    0x10
+#define NC_FLAG_TARGET_REACHED                  0x20
+#define NC_FLAG_MANUAL                          0x40
+#define NC_FLAG_GPS_OK                          0x80
+
+// ------- FCStatusFlags -------------------------------
+#define FC_STATUS_MOTOR_RUN                     0x01
+#define FC_STATUS_FLY                           0x02
+#define FC_STATUS_CALIBRATE                     0x04
+#define FC_STATUS_START                         0x08
+#define FC_STATUS_EMERGENCY_LANDING             0x10
+#define FC_STATUS_LOWBAT                        0x20
+#define FC_STATUS_VARIO_TRIM_UP                 0x40
+#define FC_STATUS_VARIO_TRIM_DOWN               0x80
+
+// ------- FCStatusFlags2 ------------------------------
+#define FC_STATUS2_CAREFREE_ACTIVE              0x01
+#define FC_STATUS2_ALTITUDE_CONTROL_ACTIVE      0x02
+#define FC_STATUS2_FAILSAFE_ACTIVE              0x04
+#define FC_STATUS2_OUT1                         0x08
+#define FC_STATUS2_OUT2                         0x10
+#define FC_STATUS2_RES1                         0x20
+#define FC_STATUS2_RES2                         0x40
+#define FC_STATUS2_RES3                         0x80
+
 
 #endif
 

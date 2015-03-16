@@ -19,7 +19,7 @@ Modified by Erling Stage.
 #define led 13  // when sending FrSKY data
 #define mkPin 2 // when processing
 
-#define xDEBUG_TRACES
+#define DEBUG_TRACES
 
 #if defined(DEBUG_TRACES)
 #define debugSerial            Serial3
@@ -51,28 +51,23 @@ int readMKdata(char *commandLine);
 char readDataType(char *mkLine);
 
 // ******************************************
-uint8_t    mk_error_code = 0;
-uint32_t   mk_used_capacity = 0;
-
-// Message # 1  SYS_STATUS 
+uint16_t   mk_error_code_1 = 0;       // Combine (Errorcode | NCFlags << 8)
+uint16_t   mk_error_code_2 = 0;       // Combine (FCFlags   | FCFlags2 << 8)
+uint16_t   mk_used_capacity = 0;      // mAh
 uint16_t   mk_voltage_battery = 0;    // 1000 = 1V
-int16_t    mk_current_battery = 0;    //  10 = 1A
-
-// Message #24  GPS_RAW_INT 
-uint8_t    ap_fixtype = 0;            // 0= No GPS, 1 = No Fix, 2 = 2D Fix, 3 = 3D Fix
+int16_t    mk_current_battery = 0;    // 10 = 1A
 uint8_t    mk_sat_visible = 0;        // numbers of visible satelites
 // FrSky Taranis uses the first recieved lat/long as homeposition. 
 int32_t    mk_latitude = 0;           // 585522540;
 int32_t    mk_longitude = 0;          // 162344467;
 int32_t    mk_gps_altitude = 0;       // 1000 = 1m
-
-// Message #74 VFR_HUD 
-//int32_t    ap_airspeed = 0;
 uint32_t   mk_groundspeed = 0;
 uint32_t   mk_compass_heading = 0;
-uint16_t   ap_throttle = 0;
+uint32_t   mk_heading = 0;            // GPS heading
+uint16_t   mk_flying_time = 0;
+int16_t    mk_vertical_speed;         // cm/s
 
-// FrSky Taranis uses the first recieved value after 'PowerOn' or  'Telemetry Reset'  as zero altitude
+// FrSky Taranis uses the first recieved value after 'PowerOn' or  'Telemetry Reset' as zero altitude
 int32_t    mk_bar_altitude = 0;    // 100 = 1m
 int32_t    mk_climb_rate = 0;      // 100 = 1m/s
 int32_t    mk_operating_radius = 0; // m  (fixed at 250 for "normal" license?)
@@ -85,7 +80,7 @@ int32_t    ap_accZ = 0;
 // These are special for FrSky
 //int32_t    adc2 = 0;               // 100 = 1.0V
 //int32_t    vfas = 0;               // 100 = 1.0V
-int32_t    gps_status = 0;         // (mk_sat_visible * 10) + ap_fixtype
+int32_t    mk_gps_status = 0;      // (mk_sat_visible * 10) + mk_fixtype
                                    // ex. 83 = 8 satellites visible, 3D lock 
 uint8_t    ap_cell_count = 4;      // This is the norm for Mikrokopter
 
@@ -104,23 +99,18 @@ MK_Command_t cmdMK = MK_Request_OSD_Data;
 void decodeOSD()
 {
     s_MK_NaviData *NaviData;
+
     digitalWrite(mkPin, HIGH);
     decode64(commandLine, rawDataDecoded, strlen(commandLine));
     NaviData = (s_MK_NaviData*)&rawDataDecoded;
 
-    if (NaviData->SatsInUse >= 6) {
-        ap_fixtype=3;
-    }
-
-    //GPS_Pos_t    CurrentPosition;	// see ubx.h for details
-    mk_longitude                 = NaviData->CurrentPosition.Longitude;
+    mk_longitude                 = NaviData->CurrentPosition.Longitude; // in 1E-7 deg see ubx.h for details
     PRINTNZ(mk_longitude);
-    mk_latitude                  = NaviData->CurrentPosition.Latitude;
+    mk_latitude                  = NaviData->CurrentPosition.Latitude; // in 1E-7 deg
     PRINTNZ(mk_latitude);
-    mk_gps_altitude              = NaviData->CurrentPosition.Altitude; // mm
+    mk_gps_altitude              = NaviData->CurrentPosition.Altitude; /// in mm
     PRINTNZ(mk_gps_altitude);
-    gps_status                   = NaviData->CurrentPosition.Status; //  GPS STATUS 0 or 1 
-    PRINTNZ(gps_status);
+    mk_gps_status                   = NaviData->CurrentPosition.Status; //  GPS STATUS INVALID=0,NEWDATA=1,PROCESSED=2 
     //---GPS_Pos_t    TargetPosition;
     //---GPS_PosDev_t TargetPositionDeviation;
     //---GPS_Pos_t    HomePosition;
@@ -130,35 +120,27 @@ void decodeOSD()
     mk_sat_visible               = NaviData->SatsInUse; // number of satellites used for position solution
     PRINTNZ(mk_sat_visible);
     mk_bar_altitude              = NaviData->Altimeter; // height according to air pressure in cm
-    PRINTNZ(mk_bar_altitude);
     mk_climb_rate                = NaviData->Variometer; // climb(+) and sink(-) rate
-    PRINTNZ(mk_climb_rate);
-    //---uint16_t     FlyingTime;		// in seconds
+    mk_flying_time               = NaviData->FlyingTime; // in seconds
     mk_voltage_battery           = NaviData->UBat; // Battery Voltage in 0.1 Volts
-    PRINTNZ(mk_voltage_battery);
     mk_groundspeed               = NaviData->GroundSpeed; // speed over ground in cm/s (2D)
-    PRINTNZ(mk_groundspeed );
-    //---int16_t      Heading;		// current flight direction in ° as angle to north
+    mk_heading                   = NaviData->Heading; // current flight direction in ° as angle to north
     mk_compass_heading           = NaviData->CompassHeading; // current compass value in °
     PRINTNZ(mk_compass_heading);
-    //---int8_t       AngleNick;		// current Nick angle in 1°
-    //---int8_t       AngleRoll;		// current Rick angle in 1°
-    //---uint8_t      RC_Quality;		// RC_Quality
+    //---int8_t       AngleNick;	// current Nick angle in 1°
+    //---int8_t       AngleRoll;	// current Rick angle in 1°
+    //---uint8_t      RC_Quality;	// RC_Quality
     //---uint8_t      FCFlags;		// Flags from FC
     //---uint8_t      NCFlags;		// Flags from NC
-    mk_error_code                = NaviData->Errorcode; // 0 --> okay
-    PRINTNZ(mk_error_code);
+    mk_error_code_1              = NaviData->Errorcode | (NaviData->NCFlags  << 8);
+    mk_error_code_2              = NaviData->FCFlags   | (NaviData->FCStatusFlags2 << 8);
     mk_operating_radius          = NaviData->OperatingRadius; // current operation radius around the Home Position in m
-    PRINTNZ(mk_operating_radius);
-    //---int16_t      TopSpeed;		// velocity in vertical direction in cm/s
+    mk_vertical_speed            = NaviData->TopSpeed; // velocity in vertical direction in cm/s
     //---uint8_t      TargetHoldTime;	// time in s to stay at the given target, counts down to 0 if target has been reached
-    //---uint8_t      RC_RSSI;		// Receiver signal strength (since version 2 added)
     //---int16_t      SetpointAltitude;	// setpoint for altitude
-    //---uint8_t      Gas;			// for future use
+    //---uint8_t      Gas;		// for future use
     mk_current_battery           = NaviData->Current; // actual current in 0.1A steps
-    PRINTNZ(mk_current_battery);
     mk_used_capacity             = NaviData->UsedCapacity; // used capacity in mAh
-    PRINTNZ(mk_used_capacity); 
     digitalWrite(mkPin, LOW);
     mk_success = 1;
 }
@@ -167,7 +149,7 @@ void decodeVersion()
 {
     str_VersionInfo *VersionInfo;
 
-    decode64(commandLine, rawDataDecoded, strlen(commandLine)); //? add decode status..? 
+    decode64(commandLine, rawDataDecoded, strlen(commandLine));
     VersionInfo = (str_VersionInfo *)&rawDataDecoded;
     char line2[20];
 
@@ -219,13 +201,14 @@ void loop()
     FrSkySPort_Process();  // Scan for RX polling messages
   
     if (sendMKCmd){ // we dont need to send the command to mk on each loop, the mk is instructed to output data on regular basis    
+#ifdef MK_VERSION_NEEDED
         // we need to fetch OSD data  
         if (!VersionReceived) {
             cmdMK = MK_Version_Request;
         }
-        
+#endif
         timeNow = millis();
-        if (timeNow - lastCMdTime > 3000) {  // MK repeating OSD subscrition lasts 4 seconds
+        if (timeNow - lastCMdTime > (mk_success ? 3000 : 300)) {  // MK repeating OSD subscrition lasts 4 seconds
             lastCMdTime = timeNow;
             makeCmdString(cmdMK, cmdStringRequest);
             if (mk_success == 0) {

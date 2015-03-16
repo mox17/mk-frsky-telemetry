@@ -18,6 +18,7 @@ class TelemetryItem
             TI_FR_ID_RPM,
             TI_FR_ID_CURRENT,
             TI_FR_ID_ALTITUDE,
+            TI_FR_ID_AIR_SPEED,
             TI_FR_ID_LONG,  // FrSKY uses a combined FR_ID_LATLONG and use a data bit to encode LAT/LONG
             TI_FR_ID_LAT,   // FrSKY uses a combined FR_ID_LATLONG and use a data bit to encode LAT/LONG
             TI_FR_ID_HEADING,
@@ -74,7 +75,7 @@ uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
         break;
 
     case TI_FR_ID_RPM:
-        value = mk_used_capacity * 2;    //  * 2 if number of blades on Taranis is set to 2
+        value = mk_sat_visible * 2;    //  * 2 if number of blades on Taranis is set to 2
         break;
 
     case TI_FR_ID_CURRENT:
@@ -112,12 +113,12 @@ uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
         break;  
 
     case TI_FR_ID_HEADING:
-        value = mk_compass_heading * 100;   // 10000 = 100 deg
-        break;    
+        value = mk_heading * 100;   // 10000 = 100 deg
+        break;
 
     case TI_FR_ID_ADC2:
-        value = mk_voltage_battery; 
-        break;       
+        value = mk_voltage_battery; // 
+        break;
 
     case TI_FR_ID_CELLS12:
         uint32_t temp;
@@ -148,15 +149,15 @@ uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
         break;     
 
     case TI_FR_ID_ACCX:
-        value = ap_accX;    
+        value = mk_compass_heading;    
         break;
 
     case TI_FR_ID_ACCY:
-        value = ap_accY; 
+        value = mk_flying_time; 
         break; 
 
     case TI_FR_ID_ACCZ:
-        value = ap_accZ; 
+        value = mk_vertical_speed; 
         break; 
 
     case TI_FR_ID_VFAS:
@@ -164,19 +165,19 @@ uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
         break;   
 
     case TI_FR_ID_T1:
-        value = mk_error_code; 
+        value = mk_error_code_1; 
         break; 
 
     case TI_FR_ID_T2:
-        value = mk_operating_radius; 
+        value = mk_error_code_2; 
         break;
 
     case TI_FR_ID_VARIO:
-        value = mk_climb_rate;       // 100 = 1m/s        
+        value = mk_climb_rate;       // cm/s        
         break;
 
     case TI_FR_ID_GPS_ALT:
-        if (mk_sat_visible>2) {
+        if (mk_gps_status % 10 == 3) {
             value = mk_gps_altitude / 10;   // from GPS, units: MK mm, FrSKY cm
         } else {
             valid = false;
@@ -184,8 +185,12 @@ uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
         break;
 
     case TI_FR_ID_FUEL:
-        value = mk_sat_visible; 
+        value = mk_used_capacity; 
         break;      
+
+    case TI_FR_ID_AIR_SPEED:
+        value = mk_gps_status;
+        break;
 
     default:
         valid = false;
@@ -233,6 +238,7 @@ private:
                                  FR_ID_RPM,
                                  FR_ID_CURRENT,
                                  FR_ID_ALTITUDE,
+                                 FR_ID_AIR_SPEED,
                                  FR_ID_LATLONG, FR_ID_LATLONG,
                                  FR_ID_HEADING,
                                  FR_ID_ADC2,
@@ -295,16 +301,17 @@ const TelemetryItem::dataType activeItems[] = {
     TelemetryItem::TI_FR_ID_RPM,
     TelemetryItem::TI_FR_ID_CURRENT,
     TelemetryItem::TI_FR_ID_ALTITUDE,
+    TelemetryItem::TI_FR_ID_AIR_SPEED,
     TelemetryItem::TI_FR_ID_LONG,
     TelemetryItem::TI_FR_ID_LAT,
     TelemetryItem::TI_FR_ID_HEADING,
-    TelemetryItem::TI_FR_ID_ADC2,
-    TelemetryItem::TI_FR_ID_CELLS12,
-    TelemetryItem::TI_FR_ID_CELLS23,
+    //TelemetryItem::TI_FR_ID_ADC2,
+    //TelemetryItem::TI_FR_ID_CELLS12,
+    //TelemetryItem::TI_FR_ID_CELLS23,
     //TelemetryItem::TI_FR_ID_CELLS45,
-    //TelemetryItem::TI_FR_ID_ACCX,
-    //TelemetryItem::TI_FR_ID_ACCY,
-    //TelemetryItem::TI_FR_ID_ACCZ,
+    TelemetryItem::TI_FR_ID_ACCX,
+    TelemetryItem::TI_FR_ID_ACCY,
+    TelemetryItem::TI_FR_ID_ACCZ,
     TelemetryItem::TI_FR_ID_VFAS,
     TelemetryItem::TI_FR_ID_T1,
     TelemetryItem::TI_FR_ID_T2,
@@ -336,9 +343,9 @@ void FrSkySPort_Process(void)
         if (lastRx == START_STOP) {
             // FrSKY scans all known nodes PLUS ONE of the unknown (in round robin) for each cycle.
             // Recognizing more ID's means that releative bandwith increases. In this case to 6/7th
-            if ((data == SENSOR_ID1) || (data == SENSOR_ID2) || 
+            if ((data == SENSOR_ID1) /*|| (data == SENSOR_ID2) || 
                 (data == SENSOR_ID3) || (data == SENSOR_ID4) ||
-                (data == SENSOR_ID5) || (data == SENSOR_ID6)) {
+                (data == SENSOR_ID5) || (data == SENSOR_ID6)*/) {
                 channel->SendItem();
             } else {
                 // Some other sensor was probed
@@ -367,8 +374,6 @@ void FrSkySPort_SendByte(uint8_t b)
     crc += b; //0-1FF
     crc += ( crc >> 8 ); //0-100
     crc &= 0x00ff;
-    crc += ( crc >> 8 ); //0-0FF
-    crc &= 0x00ff;
 }
 
 void FrSkySPort_TransmitByte(uint8_t b) 
@@ -392,7 +397,7 @@ void FrSkySPort_SendCrc()
 
 void FrSkySPort_SendPackage(uint16_t id, uint32_t value) 
 {
-    digitalWrite(led, HIGH);
+    digitalWrite(led, HIGH);  // Flash LED when sending telemetry.
     FrSkySPort_C3 |= 32;      //  Transmit direction, to S.Port
     FrSkySPort_SendByte(DATA_FRAME);
     uint8_t *bytes = (uint8_t*)&id;
