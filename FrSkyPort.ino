@@ -121,17 +121,16 @@ uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
         break;
 
     case TI_FR_ID_CELLS12:
-        uint32_t temp;
-        temp = ((mk_voltage_battery/(ap_cell_count * 2)) & 0xFFF);
-        value = (temp << 20) | (temp << 8);          // Battery cell 0,1
+        value = (cell_voltage(0) << 20) | (cell_voltage(1) << 8) | (2 << 4); // Battery cells 0 and 1, 2 cells
+        //DEBUG_PRINTLN(value);
         break;
 
     case TI_FR_ID_CELLS23:
         if (ap_cell_count > 2) {
             uint32_t offset;
             offset = ap_cell_count > 3 ? 0x02: 0x01;
-            temp = ((mk_voltage_battery/(ap_cell_count * 2)) & 0xFFF);
-            value = (temp << 20) | (temp << 8) | offset;  // Battery cell 2,3
+            value = (cell_voltage(2) << 20) | (cell_voltage(3) << 8) | (2 << 4) | offset;  // Battery cell 2,3
+            //DEBUG_PRINTLN(value);
         } else {
             valid = false;
         }
@@ -139,10 +138,10 @@ uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
 
     case TI_FR_ID_CELLS45:
         if (ap_cell_count > 4) {
-            uint32_t offset;
-            offset = ap_cell_count > 5 ? 0x04: 0x03;
-            temp = ((mk_voltage_battery/(ap_cell_count * 2)) & 0xFFF);
-            value = (temp << 20) | (temp << 8) | offset;  // Battery cell 2,3
+            //uint32_t offset;
+            //offset = ap_cell_count > 5 ? 0x04: 0x03;
+            //value = (temp << 20) | (temp << 8) | offset;  // Battery cell 2,3
+            valid = false;
         } else {
             valid = false;
         }
@@ -234,18 +233,28 @@ public:
 private:
     TelemetryItem* m_items[TelemetryItem::TI_NBR_ITEMS] = {}; //! Map data type to object
     const uint16_t m_frId[TelemetryItem::TI_NBR_ITEMS] = { // Mapping from internal ID's to FrSKY ID's
-                                 FR_ID_SPEED,
-                                 FR_ID_RPM,
-                                 FR_ID_CURRENT,
-                                 FR_ID_ALTITUDE,
-                                 FR_ID_AIR_SPEED,
-                                 FR_ID_LATLONG, FR_ID_LATLONG,
-                                 FR_ID_HEADING,
-                                 FR_ID_ADC2,
-                                 FR_ID_CELLS, FR_ID_CELLS, FR_ID_CELLS,
-                                 FR_ID_ACCX, FR_ID_ACCY, FR_ID_ACCZ,
-                                 FR_ID_VFAS,FR_ID_T1,FR_ID_T2,FR_ID_VARIO,FR_ID_GPS_ALT,
-                                 FR_ID_FUEL};       //! Map data type to FrSKY ID
+                                 FR_ID_SPEED,       //TI_FR_ID_SPEED
+                                 FR_ID_RPM,         //TI_FR_ID_RPM
+                                 FR_ID_CURRENT,     //TI_FR_ID_CURRENT
+                                 FR_ID_ALTITUDE,    //TI_FR_ID_ALTITUDE
+                                 FR_ID_AIR_SPEED,   //TI_FR_ID_AIR_SPEED
+                                 FR_ID_LATLONG,     //TI_FR_ID_LONG
+                                 FR_ID_LATLONG,     //TI_FR_ID_LAT
+                                 FR_ID_HEADING,     //TI_FR_ID_HEADING
+                                 FR_ID_ADC2,        //TI_FR_ID_ADC2
+                                 FR_ID_CELLS,       //TI_FR_ID_CELLS12
+                                 FR_ID_CELLS,       //TI_FR_ID_CELLS23
+                                 FR_ID_CELLS,       //TI_FR_ID_CELLS45
+                                 FR_ID_ACCX,        //TI_FR_ID_ACCX
+                                 FR_ID_ACCY,        //TI_FR_ID_ACCY
+                                 FR_ID_ACCZ,        //TI_FR_ID_ACCZ
+                                 FR_ID_VFAS,        //TI_FR_ID_VFAS
+                                 FR_ID_T1,          //TI_FR_ID_T1
+                                 FR_ID_T2,          //TI_FR_ID_T2
+                                 FR_ID_VARIO,       //TI_FR_ID_VARIO
+                                 FR_ID_GPS_ALT,     //TI_FR_ID_GPS_ALT
+                                 FR_ID_FUEL,        //TI_FR_ID_FUEL
+                               };       //! Map data type to FrSKY ID
     uint16_t m_count; //! Number of active telemetry items
     uint16_t m_next;  //! Next telemetry item to send
     uint16_t m_idx[TelemetryItem::TI_NBR_ITEMS] = {};
@@ -306,8 +315,8 @@ const TelemetryItem::dataType activeItems[] = {
     TelemetryItem::TI_FR_ID_LAT,
     TelemetryItem::TI_FR_ID_HEADING,
     //TelemetryItem::TI_FR_ID_ADC2,
-    //TelemetryItem::TI_FR_ID_CELLS12,
-    //TelemetryItem::TI_FR_ID_CELLS23,
+    TelemetryItem::TI_FR_ID_CELLS12,
+    TelemetryItem::TI_FR_ID_CELLS23,
     //TelemetryItem::TI_FR_ID_CELLS45,
     TelemetryItem::TI_FR_ID_ACCX,
     TelemetryItem::TI_FR_ID_ACCY,
@@ -320,7 +329,7 @@ const TelemetryItem::dataType activeItems[] = {
     TelemetryItem::TI_FR_ID_FUEL,
 };
 
-void FrSkySPort_Init(void)  
+void FrSkySPort_Initialize(void)  
 {
     FrSkySPort_Serial.begin(FrSkySPort_BAUD);
     FrSkySPort_C3 = 0x10;           // Tx invert
@@ -332,6 +341,7 @@ TelemetrySet *channel=NULL; //! This points to the object with the TelemetrySet
 
 void FrSkySPort_Setup(void)
 {
+    FrSkySPort_Initialize();
     channel = new TelemetrySet(activeItems, sizeof(activeItems));
 }
 
@@ -397,7 +407,7 @@ void FrSkySPort_SendCrc()
 
 void FrSkySPort_SendPackage(uint16_t id, uint32_t value) 
 {
-    digitalWrite(led, HIGH);  // Flash LED when sending telemetry.
+    digitalWrite(LED, HIGH);  // Flash LED when sending telemetry.
     FrSkySPort_C3 |= 32;      //  Transmit direction, to S.Port
     FrSkySPort_SendByte(DATA_FRAME);
     uint8_t *bytes = (uint8_t*)&id;
@@ -411,6 +421,6 @@ void FrSkySPort_SendPackage(uint16_t id, uint32_t value)
     FrSkySPort_SendCrc();
     FrSkySPort_Serial.flush();
     FrSkySPort_C3 ^= 32;      // Transmit direction, from S.Port
-    digitalWrite(led, LOW);
+    digitalWrite(LED, LOW);
 }
 
