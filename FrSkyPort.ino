@@ -3,7 +3,7 @@
 
 uint16_t crc;                       // used for crc calc of frsky-packet
 uint8_t  lastRx;                    // Last byte received from FrSKY. Look for 7E <dev ID>
-uint8_t cell_count = 0;
+uint8_t  cell_count = 0;
 uint32_t latlong = 0;
 uint32_t new_data_counter = 0;
 uint32_t skip_data_counter = 0;
@@ -23,7 +23,7 @@ class TelemetryItem
             TI_FR_ID_LAT,   // FrSKY uses a combined FR_ID_LATLONG and use a data bit to encode LAT/LONG
             TI_FR_ID_HEADING,
             TI_FR_ID_ADC2,
-            TI_FR_ID_CELLS12, // FrSKY uses FR_ID_CELLS and encode which cells in data
+            TI_FR_ID_CELLS01, // FrSKY uses FR_ID_CELLS and encode which cells in data
             TI_FR_ID_CELLS23, // FrSKY uses FR_ID_CELLS and encode which cells in data
             TI_FR_ID_CELLS45, // FrSKY uses FR_ID_CELLS and encode which cells in data
             TI_FR_ID_ACCX,
@@ -38,8 +38,9 @@ class TelemetryItem
             TI_NBR_ITEMS
         };
         TelemetryItem(dataType id, uint16_t frid);
-        uint32_t FetchData(dataType, bool &valid);
-        bool transmitData();
+        uint32_t fetchData(dataType, bool &valid);
+        uint32_t fetchVoltage(void);
+        bool transmitData(bool force);
 
     private:
         dataType m_id;
@@ -62,9 +63,12 @@ TelemetryItem::TelemetryItem(dataType id, uint16_t frid)
 
 /**
  * \brief convert MK data to FrSKY format
+ * \param type which type of data to send
+ * \param valid return flag - was data valid
+ * \param device a few types of data only work for for specific devices
  * \return 32 bit data item
  */
-uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
+uint32_t TelemetryItem::fetchData(dataType type, bool &valid)
 {
     uint32_t value=0;
     valid = true;
@@ -120,17 +124,15 @@ uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
         value = mk_voltage_battery; // 
         break;
 
-    case TI_FR_ID_CELLS12:
-        value = (cell_voltage(0) << 20) | (cell_voltage(1) << 8) | (2 << 4); // Battery cells 0 and 1, 2 cells
-        //DEBUG_PRINTLN(value);
+    case TI_FR_ID_CELLS01:
+        value = (cell_voltage(1) << 20) | (cell_voltage(0) << 8) | (ap_cell_count << 4) | 0; // Battery cells 0 and 1, 2 cells
         break;
 
     case TI_FR_ID_CELLS23:
         if (ap_cell_count > 2) {
             uint32_t offset;
             offset = ap_cell_count > 3 ? 0x02: 0x01;
-            value = (cell_voltage(2) << 20) | (cell_voltage(3) << 8) | (2 << 4) | offset;  // Battery cell 2,3
-            //DEBUG_PRINTLN(value);
+            value = (cell_voltage(3) << 20) | (cell_voltage(2) << 8) | (ap_cell_count << 4) | offset;  // Battery cell 2,3
         } else {
             valid = false;
         }
@@ -161,6 +163,7 @@ uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
 
     case TI_FR_ID_VFAS:
         value = mk_voltage_battery * 10;
+        DEBUG_PRINTLN(value);
         break;   
 
     case TI_FR_ID_T1:
@@ -202,13 +205,13 @@ uint32_t TelemetryItem::FetchData(dataType type, bool &valid)
  * \brief Fetch & send data if available and (new or stale)
  * \return 1 if data was sent, 
  */
-bool TelemetryItem::transmitData(void)
+bool TelemetryItem::transmitData(bool force)
 {
     bool valid = false;
-    uint32_t data = FetchData(m_id, valid);
+    uint32_t data = fetchData(m_id, valid);
 
     if (valid) {
-        if ((data != m_data) || (m_skip > m_skipmax)) {
+        if (force || (data != m_data) || (m_skip > m_skipmax)) {
             FrSkySPort_SendPackage(m_frid, data);
             m_data = data;  // Save copy of what was sent
             m_skip = 0;
@@ -228,7 +231,8 @@ class TelemetrySet
 {
 public: 
     TelemetrySet(const TelemetryItem::dataType activeIds[], uint16_t len);
-    void SendItem();
+    void sendItem();
+    void sendFlvss(void);
 
 private:
     TelemetryItem* m_items[TelemetryItem::TI_NBR_ITEMS] = {}; //! Map data type to object
@@ -242,7 +246,7 @@ private:
                                  FR_ID_LATLONG,     //TI_FR_ID_LAT
                                  FR_ID_HEADING,     //TI_FR_ID_HEADING
                                  FR_ID_ADC2,        //TI_FR_ID_ADC2
-                                 FR_ID_CELLS,       //TI_FR_ID_CELLS12
+                                 FR_ID_CELLS,       //TI_FR_ID_CELLS01
                                  FR_ID_CELLS,       //TI_FR_ID_CELLS23
                                  FR_ID_CELLS,       //TI_FR_ID_CELLS45
                                  FR_ID_ACCX,        //TI_FR_ID_ACCX
@@ -255,38 +259,47 @@ private:
                                  FR_ID_GPS_ALT,     //TI_FR_ID_GPS_ALT
                                  FR_ID_FUEL,        //TI_FR_ID_FUEL
                                };       //! Map data type to FrSKY ID
-    uint16_t m_count; //! Number of active telemetry items
-    uint16_t m_next;  //! Next telemetry item to send
-    uint16_t m_idx[TelemetryItem::TI_NBR_ITEMS] = {};
+    uint16_t m_count = 0; //! Number of active telemetry items (minus cells)
+    uint16_t m_next = 0;  //! Next telemetry item to send
+    uint16_t m_idx[TelemetryItem::TI_NBR_ITEMS] = {};  // list of active items
+    uint16_t m_idxCell[3] = {};                        // types of cells measurements
+    uint16_t m_cell = 0;                               // Last cell voltage record type sent
+    uint16_t m_cell_count = 0;                         // How many record types (0-3)
 };
 
+/**
+ * \brief Build two list of telemetry items. One for cells and one for the rest.
+ */
 TelemetrySet::TelemetrySet(const TelemetryItem::dataType activeIds[], uint16_t len)
 {
     uint16_t i;
     TelemetryItem::dataType type;
     uint16_t frtype;
 
-    m_count = len;
-    m_next = 0;
     for (i=0; i<len; i++) {
         type = activeIds[i];
         frtype = m_frId[type];
         m_items[type] = new TelemetryItem(type, frtype);  // Map each object according to data type
-        m_idx[i] = type;  // map consequtive index to used data type
+        // Cells need special handling because of overloaded device id
+        if (frtype == FR_ID_CELLS) {
+            m_idxCell[m_cell_count++] = type;
+        } else {
+            m_idx[m_count++] = type;  // map consequtive index to used data type
+        }
     }
 }
 
 /**
  * \brief Send the next ready TelemetryItem
  */
-void TelemetrySet::SendItem()
+void TelemetrySet::sendItem(void)
 {
-    bool done=false;
+    bool done = false;
     uint16_t tries=0;  // 
+    //DEBUG_PRINT("I");
     do {
-        done = m_items[m_idx[m_next]]->transmitData();
+        done = m_items[m_idx[m_next]]->transmitData(false);
         if (done) {
-            //DEBUG_PRINT("*");
             new_data_counter++;
         }
         m_next++;
@@ -303,6 +316,19 @@ void TelemetrySet::SendItem()
     } while (!done);
 }
 
+void TelemetrySet::sendFlvss(void)
+{
+    bool done=false;
+
+    if (m_cell_count > 0) {
+        done = m_items[m_idxCell[m_cell]]->transmitData(true);
+        m_cell++;
+        if (m_cell >= m_cell_count) {
+            m_cell = 0;
+        }
+    }
+}
+
 // These are the telemetry items we will actually transmit.
 // Comment out items not relevant to save bandwidth.
 const TelemetryItem::dataType activeItems[] = {
@@ -315,7 +341,7 @@ const TelemetryItem::dataType activeItems[] = {
     TelemetryItem::TI_FR_ID_LAT,
     TelemetryItem::TI_FR_ID_HEADING,
     //TelemetryItem::TI_FR_ID_ADC2,
-    TelemetryItem::TI_FR_ID_CELLS12,
+    TelemetryItem::TI_FR_ID_CELLS01,
     TelemetryItem::TI_FR_ID_CELLS23,
     //TelemetryItem::TI_FR_ID_CELLS45,
     TelemetryItem::TI_FR_ID_ACCX,
@@ -353,10 +379,12 @@ void FrSkySPort_Process(void)
         if (lastRx == START_STOP) {
             // FrSKY scans all known nodes PLUS ONE of the unknown (in round robin) for each cycle.
             // Recognizing more ID's means that releative bandwith increases. In this case to 6/7th
-            if ((data == SENSOR_ID1) /*|| (data == SENSOR_ID2) || 
+            if ((data == SENSOR_ID1) /* || (data == SENSOR_ID2) || 
                 (data == SENSOR_ID3) || (data == SENSOR_ID4) ||
                 (data == SENSOR_ID5) || (data == SENSOR_ID6)*/) {
-                channel->SendItem();
+                channel->sendItem();
+            } else if (data == SENSOR_ID_FLVSS) {
+                channel->sendFlvss();
             } else {
                 // Some other sensor was probed
                 // digitalWrite(mkPin, HIGH);

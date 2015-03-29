@@ -115,10 +115,15 @@ void readCells()
         cells_raw[i] = cells_avg[i] >> 4;
         c = calibration[i];  // This the reading for 16.8V
         cells_calibrated[i] = map(cells_avg[i], 0, (c?c:3822)*16, 0, 3822);
+/*
+        DEBUG_PRINT("(");
+        DEBUG_PRINT(cells_raw[i]);
+        DEBUG_PRINT(" | ");
         DEBUG_PRINT(cells_calibrated[i]);
-        DEBUG_PRINT(" ");
+        DEBUG_PRINT(")");
+*/
     }
-    DEBUG_PRINTLN("");
+//    DEBUG_PRINTLN("");
 }
 
 /**
@@ -169,10 +174,10 @@ int calibrate()
     // When this function is called, a voltage of 16.8 volts is applied (through divider network) to all 4 inputs.
     // This means that a reading of 4095*16.8/18.0 = 3822 is expected.
     // Save the reading as reference, and adjust calibrated reading to match this range.
-    int ok=true;
+    int ok = true;
 
-    memcpy(calibration, cells_raw, sizeof(cells_raw)*sizeof(cells_raw[0]));
     for (int i=0; i<MAX_CELLS; i++) {
+        calibration[i] = cells_raw[i];
         DEBUG_PRINTLN(calibration[i]);
         if (calibration[i] < 1000) {
             ok = false;
@@ -180,6 +185,7 @@ int calibrate()
     }
     if (ok) {
         writeCalibration();
+        digitalWrite(LED, LOW);
     } else {
         DEBUG_PRINTLN("Bad calibration data");
         for (int i=0; i<MAX_CELLS; i++) {
@@ -333,6 +339,13 @@ void loop()
     unsigned long timeNow;
     uint16_t calibrationDone;
 
+    timeNow = millis();
+
+    if ((timeNow - lastCellTime) > 50) {
+        readCells();
+        lastCellTime = timeNow;
+    }
+
     if (force_calibration) {
         calibrationDone = digitalRead(CALIB);
         if (calibrationDone > 0) {
@@ -341,7 +354,6 @@ void loop()
             calibrate();
             calibrated = true;
             force_calibration = false;
-            digitalWrite(LED, LOW);
         }
         return;
     }
@@ -355,12 +367,6 @@ void loop()
             cmdMK = MK_Version_Request;
         }
 #endif
-        timeNow = millis();
-
-        if ((timeNow - lastCellTime) > 100) {
-            readCells();
-            lastCellTime = timeNow;
-        }
 
         if (timeNow - lastCMdTime > (mk_success ? 3000 : 300)) {  // MK repeating OSD subscrition lasts 4 seconds
             lastCMdTime = timeNow;
