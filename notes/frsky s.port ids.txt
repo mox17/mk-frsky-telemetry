@@ -1,0 +1,28 @@
+        case 0x00:  // Physical ID 0 - Vario2 (altimeter high precision)
+        case 0x0D:  // Physical ID 13 - 
+        case 0x16:  // Physical ID 22 - 
+        case 0x1B:  // Physical ID 27 - 
+        case 0x22:  // Physical ID 2 - FAS-40S current sensor
+        case 0x2F:  // Physical ID 15 - 
+        case 0x34:  // Physical ID 20 - 
+        case 0x39:  // Physical ID 25 - 
+        case 0x45:  // Physical ID 5 - SP2UART(Host)
+        case 0x48:  // Physical ID 8 - 
+        case 0x53:  // Physical ID 19 - 
+        case 0x67:  // Physical ID 7 - 
+        case 0x6A:  // Physical ID 10 - 
+        case 0x71:  // Physical ID 17 - 
+        case 0x83:  // Physical ID 3 - GPS / altimeter (normal precision)
+        case 0x8E:  // Physical ID 14 - 
+        case 0x95:  // Physical ID 21 - 
+        case 0x98:  // Physical ID 24 - 
+        case 0xA1:  // Physical ID 1 - FLVSS Lipo sensor
+        case 0xAC:  // Physical ID 12 - 
+        case 0xB7:  // Physical ID 23 - 
+        case 0xBA:  // Physical ID 26 - 
+        case 0xC6:  // Physical ID 6 - SPUART(Remote)
+        case 0xCB:  // Physical ID 11 - 
+        case 0xD0:  // Physical ID 16 - 
+        case 0xE4:  // Physical ID 4 - RPM
+        case 0xE9:  // Physical ID 9 - 
+        case 0xF2:  // Physical ID 18 - 
